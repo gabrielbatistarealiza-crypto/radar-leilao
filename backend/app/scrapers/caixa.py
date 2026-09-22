@@ -716,10 +716,12 @@ class CaixaScraper(BaseScraper):
                 if match:
                     quartos = int(match.group(1))
 
-                match = re.search(r"\b(\d+)\s*vaga", texto_descricao, re.IGNORECASE) or
-                        re.search(r"\bvagas?\s*[:\-]\s*(\d+)\b", texto_descricao, re.IGNORECASE) or
-                        re.search(r"\bgaragem\s+(?:para|com)\s+(\d+)\s*(?:ve[iÃƒÂ­]culos?|carros?)?\b", texto_descricao, re.IGNORECASE) or
-                        re.search(r"\b(\d+)\s*(?:ve[iÃƒÂ­]culos?)\s*(?:de\s+garagem)?\b", texto_descricao, re.IGNORECASE)
+                match = (
+                    re.search(r"\b(\d+)\s*vaga", texto_descricao, re.IGNORECASE)
+                    or re.search(r"\bvagas?\s*[:\-]\s*(\d+)\b", texto_descricao, re.IGNORECASE)
+                    or re.search(r"\bgaragem\s+(?:para|com)\s+(\d+)\s*(?:ve[ií]culos?|carros?)?\b", texto_descricao, re.IGNORECASE)
+                    or re.search(r"\b(\d+)\s*(?:ve[ií]culos?)\s*(?:de\s+garagem)?\b", texto_descricao, re.IGNORECASE)
+                )
                 if match:
                     vagas = int(match.group(1))
 
