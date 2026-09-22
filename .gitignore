@@ -1,0 +1,88 @@
+# =========================
+# Python / Backend
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# VariÃ¡veis de ambiente / segredos
+.env
+.env.*
+!.env.example
+
+# =========================
+# Node / Frontend
+# =========================
+node_modules/
+dist/
+build/
+.vite/
+
+# =========================
+# Banco / Backups
+# =========================
+*.sql
+*.dump
+*.backup
+backups/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Sistema operacional
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Arquivos de desenvolvimento / testes
+# =========================
+backend/caixa_teste.html
+backend/diagnostico_*.py
+backend/enriquecer_*_backup.py
+backend/enriquecer_*_antes_*.py
+backend/rodar_fotos_auto*.py
+backend/teste_*.py
+backend/corrigir_fotos.py
+backend/investigar_links_results.py
+backend/remover_*.py
+backend/testar_*.py
+backend/imoveis_recuperado.py
+backend/*.pyc
+backend/py312-decompiler/
+
+backend/app/scrapers/*.backup_*
+
+# =========================
+# Scripts auxiliares de enriquecimento
+# =========================
+backend/enriquecer_datas.py
+backend/enriquecer_datas_paralelo.py
+backend/enriquecer_fotos_caixa.py
+backend/enriquecer_fotos_caixa_ESTAVEL.py
+
+# =========================
+# Dados brutos da Caixa
+# =========================
+
+# Backups de desenvolvimento
+backend/app/routers/*.bak*
+backend/app/services/*_backup.py
+frontend/src/*.backup*.jsx
+frontend/src/*.bak*
+frontend/src/*antes*.jsx
+frontend/src/App*.backup*.jsx
+frontend/src/App*.antes*.jsx
+frontend/src/App.jsx.*
