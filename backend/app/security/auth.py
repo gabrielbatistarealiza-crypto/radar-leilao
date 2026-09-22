@@ -12,7 +12,6 @@ def usuario_logado(
 
     token = credentials.credentials
 
-    print("TOKEN:", token)
 
     try:
         payload = jwt.decode(
