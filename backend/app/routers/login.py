@@ -20,16 +20,11 @@ def login(dados: Login, db: Session = Depends(get_db)):
         .first()
     )
 
-    print("EMAIL RECEBIDO:", dados.email)
-    print("USUARIO ENCONTRADO:", usuario)
-
     if not usuario:
         raise HTTPException(
             status_code=401,
             detail="E-mail ou senha invalidos."
         )
-
-    print("HASH NO BANCO:", usuario.senha)
 
     if not verificar_senha(dados.senha, usuario.senha):
         raise HTTPException(

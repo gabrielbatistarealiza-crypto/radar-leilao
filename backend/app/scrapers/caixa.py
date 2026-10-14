@@ -101,6 +101,8 @@ class CaixaScraper(BaseScraper):
             try:
                 if not self.driver:
                     options = Options()
+                    if os.getenv("BROWSER_HEADLESS", "false").lower() in {"1", "true", "yes"}:
+                        options.add_argument("--headless=new")
                     options.add_argument("--start-maximized")
                     options.add_argument("--disable-gpu")
                     options.add_argument("--no-sandbox")
@@ -426,56 +428,122 @@ class CaixaScraper(BaseScraper):
         delimitador = ";"
 
         try:
-            # A Caixa estÃƒÂ¡ fornecendo os CSVs em UTF-8.
-            # Tentamos UTF-8 primeiro para preservar acentos.
-            with open(caminho_csv, "r", encoding="utf-8-sig", newline="") as arquivo:
-                leitor = csv.reader(arquivo, delimiter=";")
+            with open(
+                caminho_csv,
+                "r",
+                encoding="utf-8-sig",
+                newline=""
+            ) as arquivo:
+                leitor = csv.reader(arquivo, delimiter=delimitador)
                 linhas = list(leitor)
 
         except UnicodeDecodeError:
-            # Fallback para arquivos antigos em Latin-1
             try:
-                with open(caminho_csv, "r", encoding="latin1", newline="") as arquivo:
-                    leitor = csv.reader(arquivo, delimiter=";")
+                with open(
+                    caminho_csv,
+                    "r",
+                    encoding="latin1",
+                    newline=""
+                ) as arquivo:
+                    leitor = csv.reader(arquivo, delimiter=delimitador)
                     linhas = list(leitor)
 
             except Exception as erro:
                 print(f"[CAIXA] Erro ao ler CSV: {erro}")
                 return []
 
-        except Exception as erro:
-            print(f"[CAIXA] Erro ao ler CSV: {erro}")
-            return []
-
         if not linhas:
             return []
 
-        # Localiza o cabeÃƒÂ§alho real
-        cabecalho_indice = self._encontrar_cabecalho(linhas)
+        # Corrige textos com dupla codificação
+        def corrigir_mojibake(texto):
+            if not isinstance(texto, str):
+                return texto
 
-        if cabecalho_indice is None:
-            print(f"[CAIXA] CabeÃƒÂ§alho nÃƒÂ£o encontrado: {caminho_csv}")
-            print("[CAIXA] Primeiras linhas:")
+            for _ in range(2):
+                # Só tenta desfazer uma codificação quebrada quando
+                # existem sinais típicos de mojibake.
+                sinais_mojibake = (
+                    "Ã",
+                    "Â",
+                    "Æ",
+                    "Ð",
+                    "Ñ",
+                    "â",
+                    "ð",
+                    "ï¿½",
+                )
 
-            for i, linha in enumerate(linhas[:10], start=1):
-                print(i, linha)
+                if not any(sinal in texto for sinal in sinais_mojibake):
+                    break
 
+                try:
+                    texto_novo = texto.encode("cp1252").decode("utf-8")
+
+                    if texto_novo == texto:
+                        break
+
+                    texto = texto_novo
+
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    break
+
+            return texto
+
+        # Corrige todas as células
+        linhas = [
+            [corrigir_mojibake(celula) for celula in linha]
+            for linha in linhas
+        ]
+
+        # Procura o cabeçalho real do CSV
+        indice_cabecalho = None
+
+        for indice, linha in enumerate(linhas):
+            texto_linha = " ".join(
+                str(celula).strip().lower()
+                for celula in linha
+            )
+
+            # O CSV da Caixa possui colunas como UF, cidade,
+            # endereço, avaliação, preço etc.
+            if (
+                ("uf" in texto_linha or "estado" in texto_linha)
+                and ("cidade" in texto_linha or "município" in texto_linha)
+                and ("preço" in texto_linha or "preco" in texto_linha)
+            ):
+                indice_cabecalho = indice
+                break
+
+        if indice_cabecalho is None:
+            print(
+                f"ERRO CSV: cabeçalho não encontrado em "
+                f"{os.path.basename(caminho_csv)}"
+            )
             return []
 
-        cabecalho = linhas[cabecalho_indice]
+        cabecalho = linhas[indice_cabecalho]
 
-        # Mapeia as colunas
-        mapa = self._mapear_colunas(cabecalho)
+        # Monta o mapa:
+        # nome normalizado da coluna -> índice
+        mapa = {}
 
-        dados_imoveis = linhas[cabecalho_indice + 1:]
+        for indice, nome in enumerate(cabecalho):
+            nome_normalizado = self._normalizar_coluna(nome)
+
+            if nome_normalizado:
+                mapa[nome_normalizado] = indice
+
+        # Tudo depois do cabeçalho são os imóveis
+        dados_imoveis = linhas[indice_cabecalho + 1:]
 
         print(
-            f"DEBUG CSV: {os.path.basename(caminho_csv)} "
-            f"-> cabeÃƒÂ§alho na linha {cabecalho_indice + 1}, "
-            f"{len(dados_imoveis)} imÃƒÂ³veis"
+            f"DEBUG CSV: {os.path.basename(caminho_csv)} -> "
+            f"cabeçalho na linha {indice_cabecalho + 1}, "
+            f"{len(dados_imoveis)} imóveis"
         )
 
-        return dados_imoveis, mapa, cabecalho_indice
+        return dados_imoveis, mapa, indice_cabecalho
 
     def _processar_csv(self, caminho_csv):
         leitura = self._ler_csv(caminho_csv)
@@ -531,7 +599,7 @@ class CaixaScraper(BaseScraper):
                     ["link de acesso", "url", "link", "link do imÃƒÂ³vel"]
                 )
 
-                if modalidade != "LeilÃƒÂ£o SFI - Edital ÃƒÅ¡nico":
+                if modalidade != "Leilão SFI - Edital Único":
                     continue
 
                 print("URL ANTES:", repr(url))
@@ -797,7 +865,7 @@ class CaixaScraper(BaseScraper):
                     os.path.basename(caminho_csv),
                     "->",
                     len(encontrados),
-                    "imÃƒÂ³veis"
+                    "imóveis"
                 )
 
                 resultados.extend(encontrados)

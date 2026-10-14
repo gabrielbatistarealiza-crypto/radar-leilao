@@ -1,9 +1,10 @@
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
+import os
 import re
 
 class CaixaBloqueioError(Exception):
-    """Indica que a Caixa bloqueou/protegeu o acesso ÃƒÂ  pÃƒÂ¡gina."""
+    """Indica que a Caixa bloqueou/protegeu o acesso à página."""
     pass
 
 class Browser:
@@ -13,14 +14,14 @@ class Browser:
         self.pagina = None
 
     def iniciar(self):
-        """Inicia uma sessÃƒÂ£o Playwright reutilizÃƒÂ¡vel."""
+        """Inicia uma sessão Playwright reutilizável."""
         if self.pagina:
             return
 
         self.playwright = sync_playwright().start()
 
         self.navegador = self.playwright.chromium.launch(
-            headless=False
+            headless=os.getenv("BROWSER_HEADLESS", "false").lower() in {"1", "true", "yes"}
         )
 
         self.pagina = self.navegador.new_page(
@@ -32,10 +33,10 @@ class Browser:
             ),
         )
 
-        print("[BROWSER] SessÃƒÂ£o Playwright iniciada.")
+        print("[BROWSER] Sessão Playwright iniciada.")
 
     def fechar(self):
-        """Fecha a sessÃƒÂ£o Playwright reutilizÃƒÂ¡vel."""
+        """Fecha a sessão Playwright reutilizável."""
         try:
             if self.pagina:
                 self.pagina.close()
@@ -58,17 +59,17 @@ class Browser:
         self.navegador = None
         self.playwright = None
 
-        print("[BROWSER] SessÃƒÂ£o Playwright encerrada.")
+        print("[BROWSER] Sessão Playwright encerrada.")
 
     def coletar_imagens_galeria_sessao(self, url: str):
-        """Coleta imagens usando uma sessÃƒÂ£o Playwright jÃƒÂ¡ aberta."""
+        """Coleta imagens usando uma sessão Playwright já aberta."""
 
         if not url:
             return [], 0
 
         if not self.pagina:
             raise RuntimeError(
-                "SessÃƒÂ£o Playwright nÃƒÂ£o iniciada. "
+                "Sessão Playwright não iniciada. "
                 "Execute Browser.iniciar() antes da coleta."
             )
 
@@ -85,7 +86,7 @@ class Browser:
             timeout=10000,
         )
 
-        # DÃƒÂ¡ tempo para a galeria terminar de carregar.
+        # Dá tempo para a galeria terminar de carregar.
         pagina.wait_for_timeout(3000)
 
         galeria = pagina.locator("#galeria-imagens")
@@ -108,12 +109,12 @@ class Browser:
             )
 
             if bloqueado:
-                print("[CAIXA] BLOQUEIO/PROTEÃƒâ€¡ÃƒÆ’O DETECTADO.")
+                print("[CAIXA] BLOQUEIO/PROTEÇÃO DETECTADO.")
                 raise CaixaBloqueioError(
-                    "Caixa bloqueou/protegeu o acesso ÃƒÂ  pÃƒÂ¡gina."
+                    "Caixa bloqueou/protegeu o acesso à página."
                 )
 
-            print("[GALERIA] #galeria-imagens nÃƒÂ£o encontrada.")
+            print("[GALERIA] #galeria-imagens não encontrada.")
             return [], 0
 
         print("[GALERIA] #galeria-imagens encontrada.")
@@ -194,8 +195,8 @@ class Browser:
 
     def coletar_imagens_galeria(self, url: str):
         """
-        MÃƒÂ©todo original mantido para compatibilidade.
-        Abre uma sessÃƒÂ£o exclusiva para uma ÃƒÂºnica coleta.
+        Método original mantido para compatibilidade.
+        Abre uma sessão exclusiva para uma única coleta.
         """
 
         if not url:
@@ -234,7 +235,7 @@ class Browser:
                 or "Bot Manager" in html
             ):
                 print("\n" + "=" * 60)
-                print("CAPTCHA / PROTEÃƒâ€¡ÃƒÆ’O DA CAIXA DETECTADO")
+                print("CAPTCHA / PROTEÇÃO DA CAIXA DETECTADO")
                 print("=" * 60)
                 print("Resolva o CAPTCHA manualmente no navegador.")
                 print("Depois volte ao terminal e pressione ENTER.")
@@ -253,15 +254,15 @@ class Browser:
 
             if "Radware Bot Manager" in html:
                 print(
-                    "ATENÃƒâ€¡ÃƒÆ’O: a pÃƒÂ¡gina ainda parece ser o CAPTCHA."
+                    "ATENÇÃO: a página ainda parece ser o CAPTCHA."
                 )
             elif "CAPTCHA" in html:
                 print(
-                    "ATENÃƒâ€¡ÃƒÆ’O: ainda existe CAPTCHA na pÃƒÂ¡gina."
+                    "ATENÇÃO: ainda existe CAPTCHA na página."
                 )
             else:
                 print(
-                    "PÃƒÂ¡gina carregada sem indicaÃƒÂ§ÃƒÂ£o de CAPTCHA."
+                    "Página carregada sem indicação de CAPTCHA."
                 )
 
             browser.close()

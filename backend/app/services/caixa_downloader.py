@@ -1,4 +1,5 @@
 import time
+import os
 import requests
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 class CaixaDownloader:
     """
-    Baixa automaticamente as listas de imÃƒÂ³veis da CAIXA usando Selenium.
+    Baixa automaticamente as listas de imóveis da CAIXA usando Selenium.
 
     Os arquivos sÃƒÂ£o salvos em:
     backend/app/scrapers/dados/
@@ -81,13 +82,12 @@ class CaixaDownloader:
             prefs,
         )
 
-        # NÃƒÂ£o usar headless.
-        # O teste mostrou que o Chrome visÃƒÂ­vel funciona melhor
-        # com a pÃƒÂ¡gina da CAIXA.
+        if os.getenv("BROWSER_HEADLESS", "false").lower() in {"1", "true", "yes"}:
+            options.add_argument("--headless=new")
         options.add_argument("--start-maximized")
 
         self.driver = webdriver.Chrome(
-            options=options
+            options=options,
         )
 
         self.driver.set_page_load_timeout(60)
@@ -132,7 +132,7 @@ class CaixaDownloader:
     def validar_csv(self, arquivo):
         """
         Confirma que o arquivo baixado realmente ÃƒÂ© uma lista
-        de imÃƒÂ³veis da CAIXA e nÃƒÂ£o uma pÃƒÂ¡gina HTML/CAPTCHA.
+        de imóveis da CAIXA e nÃƒÂ£o uma pÃƒÂ¡gina HTML/CAPTCHA.
         """
 
         if not arquivo.exists():
@@ -140,7 +140,7 @@ class CaixaDownloader:
 
         # Arquivos extremamente pequenos provavelmente sÃƒÂ£o erro.
         # NÃƒÂ£o exigimos mais 50 KB, pois alguns estados podem ter
-        # poucos imÃƒÂ³veis.
+        # poucos imóveis.
         tamanho = arquivo.stat().st_size
 
         if tamanho < 500:

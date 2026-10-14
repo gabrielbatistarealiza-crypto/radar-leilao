@@ -50,6 +50,12 @@ class Imovel(Base):
         order_by="ImovelImagem.ordem",
     )
 
+    oportunidades = relationship(
+        "Oportunidade",
+        back_populates="imovel",
+        cascade="all, delete-orphan",
+    )
+
     @property
     def imagens(self):
         return [foto.url for foto in self.fotos]
