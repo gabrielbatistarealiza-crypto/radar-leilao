@@ -10,6 +10,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL não configurada.")
 
+# SQLAlchemy 2.x no longer recognizes the legacy ``postgres://`` scheme.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
 engine = create_engine(DATABASE_URL)
 

@@ -175,7 +175,11 @@ async def _rotina_notificacoes():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") == "1":
+    if (
+        os.getenv("RADAR_DISABLE_BACKGROUND_JOBS") == "1"
+        or os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") == "1"
+    ):
+        logger.info("Rotinas automáticas em segundo plano desativadas por configuração.")
         yield
         return
 
