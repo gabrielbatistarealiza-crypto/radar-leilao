@@ -16,6 +16,7 @@ from app.models.imovel import (
     ImovelFotoVerificacao,
 )
 from app.models.atualizacao_caixa import AtualizacaoCaixa
+from app.models.caixa_data_worker_state import CaixaDataWorkerState
 from app.routers.usuarios import router as usuarios_router
 from app.routers.login import router as login_router
 from app.routers.scraper import router as scraper_router
@@ -48,6 +49,15 @@ from app.services.notificacoes import (
     libertar_lock_scheduler_notificacoes,
     tentar_lock_scheduler_notificacoes,
 )
+from app.services.caixa_datas_worker import intervalo_entre_imoveis
+from app.services.caixa_rotinas import (
+    executar_importacao,
+    executar_lote_datas,
+    executar_lote_fotos,
+)
+
+# Outra rotina (deste ou de outro processo) está a usar a CAIXA: tenta depois.
+ESPERA_CAIXA_OCUPADA = 60
 
 
 Base.metadata.create_all(bind=engine)
@@ -58,7 +68,8 @@ logger = logging.getLogger(__name__)
 def _atualizar_lista_caixa_agendada():
     db = SessionLocal()
     try:
-        return ScraperService(db).atualizar_lista_caixa()
+        # Respeita a espera de bloqueio e o lock entre processos.
+        return executar_importacao(db)
     finally:
         db.close()
 
@@ -90,20 +101,95 @@ async def _rotina_atualizacao_caixa():
 def _processar_fila_fotos_caixa_agendada(limite: int = 50):
     db = SessionLocal()
     try:
-        return ScraperService(db).processar_fila_fotos_caixa(limite)
+        # O porteiro verifica a espera; um bloqueio grava-a via
+        # registrar_bloqueio_caixa (cria a linha de estado se faltar).
+        return executar_lote_fotos(db, limite)
     finally:
         db.close()
+
+
+def _processar_lote_datas_caixa_agendado():
+    db = SessionLocal()
+    try:
+        return executar_lote_datas(db)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+# Fila vazia: volta a olhar de hora a hora. A importação diária reativa a fila.
+ESPERA_FILA_DATAS_CONCLUIDA = 3600
+# Falha técnica (Chrome, timeouts): dá tempo ao ambiente antes de repetir.
+ESPERA_FALHA_TECNICA_DATAS = 300
+
+
+async def _rotina_enriquecimento_datas_caixa():
+    """Preenche datas gradualmente e retoma com espera longa após bloqueio."""
+    while True:
+        try:
+            resultado = await asyncio.to_thread(
+                _processar_lote_datas_caixa_agendado
+            )
+            if resultado.get("ocupado"):
+                await asyncio.sleep(ESPERA_CAIXA_OCUPADA)
+                continue
+            if resultado.get("concluido"):
+                # Não termina a tarefa: depois da próxima importação há
+                # imóveis novos sem datas para tratar.
+                logger.info(
+                    "Worker de datas da CAIXA sem pendências na fila; "
+                    "nova verificação em %s segundos.",
+                    ESPERA_FILA_DATAS_CONCLUIDA,
+                )
+                await asyncio.sleep(ESPERA_FILA_DATAS_CONCLUIDA)
+                continue
+            if resultado.get("falha_tecnica"):
+                logger.warning(
+                    "Worker de datas da CAIXA: falha técnica no imóvel %s "
+                    "(tentativa %s); nova volta em %s segundos.",
+                    resultado.get("falha_tecnica_id"),
+                    resultado.get("tentativas_falha_tecnica"),
+                    ESPERA_FALHA_TECNICA_DATAS,
+                )
+                await asyncio.sleep(ESPERA_FALHA_TECNICA_DATAS)
+                continue
+            if resultado.get("aguardando_bloqueio"):
+                espera = max(60, resultado["segundos_restantes"])
+                logger.info(
+                    "Worker de datas da CAIXA aguardará o bloqueio persistente "
+                    "expirar (%s segundos).",
+                    espera,
+                )
+                await asyncio.sleep(espera)
+                continue
+            if resultado.get("bloqueado"):
+                logger.warning(
+                    "CAIXA bloqueou o worker de datas; nova tentativa em %s horas.",
+                    resultado.get("horas_espera"),
+                )
+                continue
+            logger.info(
+                "Worker de datas da CAIXA: processados=%s, atualizados=%s.",
+                resultado.get("processados", 0),
+                resultado.get("atualizados", 0),
+            )
+            await asyncio.sleep(intervalo_entre_imoveis())
+        except Exception:
+            logger.exception("Falha no worker automático de datas da CAIXA.")
+            await asyncio.sleep(60)
 
 async def _rotina_fila_fotos_caixa():
     """Processa automaticamente a fila de fotos da Caixa."""
 
-    PAUSA_ENTRE_LOTES = 30
+    PAUSA_ENTRE_LOTES = 60
 
     while True:
         try:
             resultado = await asyncio.to_thread(
                 _processar_fila_fotos_caixa_agendada,
-                50,
+                5,
             )
 
             logger.info(
@@ -111,12 +197,25 @@ async def _rotina_fila_fotos_caixa():
                 resultado,
             )
 
+            if resultado.get("ocupado"):
+                await asyncio.sleep(ESPERA_CAIXA_OCUPADA)
+                continue
+
+            if resultado.get("aguardando_bloqueio"):
+                espera = max(60, resultado["segundos_restantes"])
+                logger.info(
+                    "Worker de fotos aguardará a CAIXA por %s segundos.",
+                    espera,
+                )
+                await asyncio.sleep(espera)
+                continue
+
             if resultado.get("bloqueados", 0) > 0:
                 logger.warning(
-                    "Caixa bloqueou o acesso. "
-                    "Worker de fotos encerrado para evitar novas tentativas."
+                    "Caixa bloqueou o acesso. Worker de fotos aguardará %s horas.",
+                    resultado.get("horas_espera"),
                 )
-                return
+                continue
 
             if resultado.get("processados", 0) == 0:
                 logger.info(
@@ -189,23 +288,40 @@ async def lifespan(app: FastAPI):
         _rotina_atualizacao_caixa()
     )
 
-    tarefa_fotos = asyncio.create_task(
-        _rotina_fila_fotos_caixa()
-    )
+    tarefa_datas = None
+    if os.getenv("RADAR_ENABLE_CAIXA_DATE_WORKER", "1") == "1":
+        tarefa_datas = asyncio.create_task(_rotina_enriquecimento_datas_caixa())
+
+    tarefa_fotos = None
+    if os.getenv("RADAR_ENABLE_CAIXA_PHOTO_WORKER", "1") == "1":
+        tarefa_fotos = asyncio.create_task(_rotina_fila_fotos_caixa())
+    else:
+        logger.info(
+            "Worker automático de fotos da CAIXA pausado. "
+            "Defina RADAR_ENABLE_CAIXA_PHOTO_WORKER=1 para reativá-lo."
+        )
     tarefa_notificacoes = asyncio.create_task(_rotina_notificacoes())
 
     try:
         yield
     finally:
         tarefa_atualizacao.cancel()
-        tarefa_fotos.cancel()
+        if tarefa_datas is not None:
+            tarefa_datas.cancel()
+        if tarefa_fotos is not None:
+            tarefa_fotos.cancel()
         tarefa_notificacoes.cancel()
 
         with suppress(asyncio.CancelledError):
             await tarefa_atualizacao
 
-        with suppress(asyncio.CancelledError):
-            await tarefa_fotos
+        if tarefa_datas is not None:
+            with suppress(asyncio.CancelledError):
+                await tarefa_datas
+
+        if tarefa_fotos is not None:
+            with suppress(asyncio.CancelledError):
+                await tarefa_fotos
 
         with suppress(asyncio.CancelledError):
             await tarefa_notificacoes

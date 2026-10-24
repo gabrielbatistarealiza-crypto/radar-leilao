@@ -92,19 +92,21 @@ class Browser:
         galeria = pagina.locator("#galeria-imagens")
 
         if galeria.count() == 0:
-            html = pagina.content()
             texto = pagina.locator("body").inner_text()
 
             sinais_bloqueio = (
                 "Estamos detectando comportamento malicioso no acesso",
-                "Radware Bot Manager",
-                "Bot Manager",
-                "CAPTCHA",
+                "access denied",
+                "request blocked",
+                "we have detected unusual traffic",
+                "verify you are human",
+                "captcha",
             )
 
+            # A página normal pode carregar o script do Radware. Só marcamos
+            # bloqueio quando há mensagem de proteção no texto visível.
             bloqueado = any(
-                sinal.lower() in html.lower()
-                or sinal.lower() in texto.lower()
+                sinal.lower() in texto.lower()
                 for sinal in sinais_bloqueio
             )
 
@@ -209,62 +211,6 @@ class Browser:
         finally:
             self.fechar()
 
-    def abrir(self, url: str):
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-
-            page = browser.new_page(
-                viewport={"width": 1366, "height": 768}
-            )
-
-            print(f"\nAbrindo: {url}")
-
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=60000,
-            )
-
-            page.wait_for_selector("body")
-
-            html = page.content()
-
-            if (
-                "Radware Bot Manager" in html
-                or "CAPTCHA" in html
-                or "Bot Manager" in html
-            ):
-                print("\n" + "=" * 60)
-                print("CAPTCHA / PROTEÇÃO DA CAIXA DETECTADO")
-                print("=" * 60)
-                print("Resolva o CAPTCHA manualmente no navegador.")
-                print("Depois volte ao terminal e pressione ENTER.")
-                print("=" * 60)
-
-                input(
-                    "\nPressione ENTER depois de resolver: "
-                )
-
-                html = page.content()
-
-            print(
-                "\nHTML FINAL RECEBIDO:",
-                len(html),
-            )
-
-            if "Radware Bot Manager" in html:
-                print(
-                    "ATENÇÃO: a página ainda parece ser o CAPTCHA."
-                )
-            elif "CAPTCHA" in html:
-                print(
-                    "ATENÇÃO: ainda existe CAPTCHA na página."
-                )
-            else:
-                print(
-                    "Página carregada sem indicação de CAPTCHA."
-                )
-
-            browser.close()
-
-            return html
+    # Browser.abrir() foi removido: pedia para resolver o CAPTCHA à mão e
+    # continuar, o que contraria a regra de parar ao primeiro bloqueio.
+    # Não era chamado por nenhum código.

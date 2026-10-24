@@ -7,6 +7,26 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from bs4 import BeautifulSoup
+
+from app.utils.browser import CaixaBloqueioError
+
+# Sinais de CAPTCHA/bloqueio (texto visível ou conteúdo baixado). Um HTML
+# qualquer não basta: só estes marcadores param a importação inteira.
+MARCADORES_BLOQUEIO_DOWNLOAD = (
+    "radware",
+    "captcha",
+    "access denied",
+    "request blocked",
+    "estamos detectando comportamento malicioso",
+    "verificação de segurança",
+    "verify you are human",
+)
+
+
+def texto_indica_bloqueio(texto: str) -> bool:
+    texto = (texto or "").lower()
+    return any(marcador in texto for marcador in MARCADORES_BLOQUEIO_DOWNLOAD)
 
 
 
@@ -128,6 +148,31 @@ class CaixaDownloader:
     # ============================================================
     # VALIDA CSV
     # ============================================================
+
+    def _verificar_pagina_bloqueada(self):
+        """Levanta CaixaBloqueioError se a página aberta for um CAPTCHA."""
+        try:
+            html = self.driver.page_source or ""
+            titulo = self.driver.title or ""
+        except Exception:
+            return
+        sopa = BeautifulSoup(html, "html.parser")
+        for oculto in sopa(["script", "style", "noscript", "template"]):
+            oculto.decompose()
+        if texto_indica_bloqueio(f"{titulo} {sopa.get_text(' ', strip=True)}"):
+            raise CaixaBloqueioError("CAPTCHA/bloqueio na página de download.")
+
+    @staticmethod
+    def _arquivo_indica_bloqueio(arquivo):
+        try:
+            with open(arquivo, "rb") as f:
+                conteudo = f.read(20000).decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+        sopa = BeautifulSoup(conteudo, "html.parser")
+        for oculto in sopa(["script", "style", "noscript", "template"]):
+            oculto.decompose()
+        return texto_indica_bloqueio(sopa.get_text(" ", strip=True))
 
     def validar_csv(self, arquivo):
         """
@@ -301,10 +346,102 @@ class CaixaDownloader:
         return destino
 
     # ============================================================
+    # RESERVA DO CSV ANTERIOR
+    # ============================================================
+    # Antes, o CSV válido da UF era apagado antes do download: um CAPTCHA ou
+    # uma falha deixava a UF sem lista no disco e o ficheiro de bloqueio podia
+    # ficar em dados/. Agora o anterior vai para dados/_anterior/<UF>/ (o
+    # importador só lê o nível de topo) e só é descartado após um download
+    # válido; caso contrário, o que foi baixado é apagado e o anterior volta.
+
+    def _pasta_reserva(self, uf):
+        return self.pasta_dados / "_anterior" / uf
+
+    def _ficheiros_da_uf(self, uf):
+        return [
+            arquivo
+            for arquivo in self.pasta_dados.glob(f"Lista_imoveis_{uf}*")
+            if arquivo.is_file()
+        ]
+
+    def _guardar_anteriores(self, uf):
+        reserva = self._pasta_reserva(uf)
+        # Reserva deixada por uma execução interrompida: se a UF ficou sem
+        # ficheiro, repõe-na antes de começar.
+        if reserva.exists() and any(reserva.iterdir()) and not self._ficheiros_da_uf(uf):
+            self._restaurar_anteriores(uf)
+        reserva.mkdir(parents=True, exist_ok=True)
+        for arquivo in self._ficheiros_da_uf(uf):
+            destino = reserva / arquivo.name
+            if destino.exists():
+                destino.unlink()
+            arquivo.rename(destino)
+
+    def _restaurar_anteriores(self, uf):
+        # Apaga o que veio deste download (CAPTCHA, HTML, parcial).
+        for arquivo in self._ficheiros_da_uf(uf):
+            try:
+                arquivo.unlink()
+                print(f"[CAIXA] Descartado download inválido: {arquivo.name}")
+            except OSError as erro:
+                print(f"[CAIXA] Não foi possível apagar {arquivo.name}: {erro}")
+        reserva = self._pasta_reserva(uf)
+        if not reserva.exists():
+            return
+        for arquivo in reserva.iterdir():
+            if arquivo.is_file():
+                arquivo.rename(self.pasta_dados / arquivo.name)
+        self._remover_reserva_vazia(uf)
+
+    def _descartar_anteriores(self, uf):
+        reserva = self._pasta_reserva(uf)
+        if not reserva.exists():
+            return
+        for arquivo in reserva.iterdir():
+            if arquivo.is_file():
+                arquivo.unlink()
+        self._remover_reserva_vazia(uf)
+
+    def _remover_reserva_vazia(self, uf):
+        for pasta in (self._pasta_reserva(uf), self.pasta_dados / "_anterior"):
+            try:
+                pasta.rmdir()
+            except OSError:
+                pass
+
+    # ============================================================
     # BAIXA UM ESTADO
     # ============================================================
 
     def baixar_estado(
+        self,
+        uf,
+        tentativas=3,
+    ):
+        """Baixa o CSV de uma UF guardando o anterior até haver um válido."""
+
+        uf_normalizada = uf.upper().strip()
+        if uf_normalizada not in self.UFS:
+            return self._baixar_estado_sem_reserva(uf, tentativas=tentativas)
+
+        self._guardar_anteriores(uf_normalizada)
+        try:
+            resultado = self._baixar_estado_sem_reserva(
+                uf_normalizada,
+                tentativas=tentativas,
+            )
+        except BaseException:
+            # Inclui CaixaBloqueioError: nada do bloqueio fica em dados/.
+            self._restaurar_anteriores(uf_normalizada)
+            raise
+
+        if resultado.get("sucesso"):
+            self._descartar_anteriores(uf_normalizada)
+        else:
+            self._restaurar_anteriores(uf_normalizada)
+        return resultado
+
+    def _baixar_estado_sem_reserva(
         self,
         uf,
         tentativas=3,
@@ -344,6 +481,10 @@ class CaixaDownloader:
                 # Isso deixa o processo muito mais previsÃƒÂ­vel
                 # do que tentar reutilizar a pÃƒÂ¡gina anterior.
                 self.driver.get(self.URL)
+
+                # Página de CAPTCHA em vez do formulário: para tudo, sem
+                # novas tentativas (insistir só prolonga o bloqueio).
+                self._verificar_pagina_bloqueada()
 
                 wait = WebDriverWait(
                     self.driver,
@@ -457,6 +598,11 @@ class CaixaDownloader:
                     except Exception:
                         inicio = ""
 
+                    if self._arquivo_indica_bloqueio(arquivo):
+                        raise CaixaBloqueioError(
+                            f"CAPTCHA/bloqueio no download de {uf}."
+                        )
+
                     raise RuntimeError(
                         "O arquivo baixado nÃƒÂ£o ÃƒÂ© um "
                         "CSV vÃƒÂ¡lido da CAIXA. "
@@ -491,6 +637,10 @@ class CaixaDownloader:
                         arquivo_final.stat().st_size
                     ),
                 }
+
+            except CaixaBloqueioError:
+                # Nunca repetir após um bloqueio.
+                raise
 
             except Exception as erro:
 
@@ -534,6 +684,8 @@ class CaixaDownloader:
 
         sucesso = []
         falhas = []
+        bloqueado = False
+        uf_bloqueada = None
 
         print()
         print("=" * 60)
@@ -550,10 +702,18 @@ class CaixaDownloader:
 
             for uf in self.UFS:
 
-                resultado = self.baixar_estado(
-                    uf,
-                    tentativas=tentativas,
-                )
+                try:
+                    resultado = self.baixar_estado(
+                        uf,
+                        tentativas=tentativas,
+                    )
+                except CaixaBloqueioError as erro:
+                    # Para as restantes UFs: nada de insistir com CAPTCHA.
+                    print(f"[CAIXA] BLOQUEIO em {uf}: {erro}. Download interrompido.")
+                    bloqueado = True
+                    uf_bloqueada = uf
+                    falhas.append({"uf": uf, "erro": str(erro)})
+                    break
 
                 if resultado["sucesso"]:
                     sucesso.append(uf)
@@ -627,6 +787,8 @@ class CaixaDownloader:
             "sucesso": sucesso,
             "falhas": falhas,
             "duracao_segundos": duracao,
+            "bloqueado": bloqueado,
+            "uf_bloqueada": uf_bloqueada,
         }
 
 

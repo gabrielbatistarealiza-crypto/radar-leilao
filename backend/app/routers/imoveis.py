@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 import re
 
+import time
+
 import unicodedata
 
 from typing import Optional, Literal, List
@@ -22,7 +24,12 @@ from app.models.imovel import Imovel
 
 from app.schemas.imovel import ImovelCreate, ImovelResponse, ImoveisPaginados
 
-from app.utils.browser import Browser
+from app.utils.browser import Browser, CaixaBloqueioError
+from app.services.caixa_acesso import (
+    acesso_caixa_http,
+    intervalo_entre_fotos,
+    registrar_bloqueio_caixa,
+)
 
 from app.services.scraper_service import ScraperService
 from app.security.auth import usuario_admin
@@ -32,6 +39,26 @@ from app.security.auth import usuario_admin
 
 
 router = APIRouter(prefix="/imoveis", tags=["Imóveis"])
+
+
+def _porteiro_caixa(origem: str):
+    """Dependência que só deixa o endpoint correr com acesso à CAIXA autorizado.
+
+    Depende de usuario_admin, por isso a autenticação é resolvida ANTES do
+    porteiro: sem login dá 401, sem perfil de administrador dá 403, e nesses
+    casos o lock nunca é adquirido nem o estado de bloqueio é revelado.
+    Usa o mesmo get_db do endpoint (a sessão é partilhada no pedido).
+    Depois: 409 se outra consulta estiver em curso; 429 durante a espera.
+    """
+
+    def dependencia(
+        administrador=Depends(usuario_admin),
+        db: Session = Depends(get_db),
+    ):
+        with acesso_caixa_http(db, origem):
+            yield
+
+    return dependencia
 
 
 
@@ -861,7 +888,10 @@ def listar_imoveis(
 
 
 
-@router.post("/manutencao/coletar-imagens-caixa-lote")
+@router.post(
+    "/manutencao/coletar-imagens-caixa-lote",
+    dependencies=[Depends(_porteiro_caixa("fotos-lote-manual"))],
+)
 
 def coletar_imagens_caixa_lote(
 
@@ -962,6 +992,9 @@ def coletar_imagens_caixa_lote(
 
 
 
+    bloqueado = False
+    pausa = intervalo_entre_fotos()
+
     try:
 
         browser.iniciar()
@@ -969,6 +1002,9 @@ def coletar_imagens_caixa_lote(
 
 
         for imovel in imoveis:
+
+            if processados:
+                time.sleep(pausa)
 
             processados += 1
 
@@ -1136,6 +1172,18 @@ def coletar_imagens_caixa_lote(
 
 
 
+            except CaixaBloqueioError as exc:
+
+                # CAPTCHA/bloqueio: grava a espera partilhada e para o lote.
+                # Este imóvel não conta como processado (o offset não o salta).
+                processados -= 1
+                bloqueado = True
+                resultado["status"] = "bloqueado"
+                resultado["erro"] = str(exc)
+                resultados.append(resultado)
+                registrar_bloqueio_caixa(db, "fotos-lote-manual")
+                break
+
             except Exception as exc:
 
                 falhas += 1
@@ -1196,13 +1244,18 @@ def coletar_imagens_caixa_lote(
 
         "fotos_existentes": fotos_existentes,
 
+        "bloqueado": bloqueado,
+
         "resultado": resultados,
 
     }
 
 
 
-@router.post("/manutencao/coletar-imagens-caixa-playwright")
+@router.post(
+    "/manutencao/coletar-imagens-caixa-playwright",
+    dependencies=[Depends(_porteiro_caixa("fotos-imovel-manual"))],
+)
 
 def coletar_imagens_caixa_playwright(
 
@@ -1243,7 +1296,17 @@ def coletar_imagens_caixa_playwright(
 
 
 
-    imagens, fotos_lidas = Browser().coletar_imagens_galeria(imovel.url)
+    try:
+        imagens, fotos_lidas = Browser().coletar_imagens_galeria(imovel.url)
+    except CaixaBloqueioError as exc:
+        horas = registrar_bloqueio_caixa(db, "fotos-imovel-manual")
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "A CAIXA bloqueou o acesso. Novas consultas suspensas por "
+                f"{horas} horas."
+            ),
+        ) from exc
 
     salvas = ScraperService(db).salvar_imagens(imovel, imagens)
 
@@ -1267,7 +1330,10 @@ def coletar_imagens_caixa_playwright(
 
 
 
-@router.post("/manutencao/processar-fila-fotos-caixa")
+@router.post(
+    "/manutencao/processar-fila-fotos-caixa",
+    dependencies=[Depends(_porteiro_caixa("fotos-fila-manual"))],
+)
 
 def processar_fila_fotos_caixa(
 
@@ -1280,7 +1346,10 @@ def processar_fila_fotos_caixa(
 
     """Processa um lote de imóveis Caixa pendentes de fotos."""
 
-    return ScraperService(db).processar_fila_fotos_caixa(limite)
+    resultado = ScraperService(db).processar_fila_fotos_caixa(limite)
+    if resultado.get("bloqueados", 0):
+        resultado["horas_espera"] = registrar_bloqueio_caixa(db, "fotos-fila-manual")
+    return resultado
 
 
 
@@ -1338,7 +1407,10 @@ def buscar_imovel(
 
 
 
-@router.post("/manutencao/testar-galeria-caixa-playwright")
+@router.post(
+    "/manutencao/testar-galeria-caixa-playwright",
+    dependencies=[Depends(_porteiro_caixa("fotos-teste-manual"))],
+)
 
 def testar_galeria_caixa_playwright(
 
@@ -1369,9 +1441,16 @@ def testar_galeria_caixa_playwright(
 
     encontrado = None
 
+    bloqueado = False
+
+    pausa = intervalo_entre_fotos()
 
 
-    for imovel in imoveis:
+
+    for indice, imovel in enumerate(imoveis):
+
+        if indice:
+            time.sleep(pausa)
 
         resultado = {
 
@@ -1437,7 +1516,7 @@ def testar_galeria_caixa_playwright(
 
 
 
-            if any(
+            if isinstance(exc, CaixaBloqueioError) or any(
 
                 termo in erro
 
@@ -1455,7 +1534,11 @@ def testar_galeria_caixa_playwright(
 
             ):
 
-                continue
+                # Antes seguia para o imóvel seguinte com um navegador novo.
+                # Agora grava a espera partilhada e para.
+                bloqueado = True
+                registrar_bloqueio_caixa(db, "fotos-teste-manual")
+                break
 
 
 
@@ -1466,6 +1549,8 @@ def testar_galeria_caixa_playwright(
         "limite": limite,
 
         "encontrado": encontrado,
+
+        "bloqueado": bloqueado,
 
         "resultado": resultados,
 
