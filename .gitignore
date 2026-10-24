@@ -95,3 +95,7 @@ frontend/src/App.jsx.*
 backend/app_backup_encoding*/
 /App-atual.txt
 /corrigir_*.py
+
+# Migracoes de esquema: versionadas (a regra *.sql acima e para dumps)
+!backend/migrations/*.sql
+!migracoes/*.sql
