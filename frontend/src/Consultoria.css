@@ -1,0 +1,29 @@
+.consultoria{display:grid;gap:12px;padding-top:24px;padding-bottom:24px;text-align:left}
+.consultoria-cabecalho h2{display:flex;align-items:center;gap:8px;margin:0 0 4px;color:#162033;font-size:22px}
+.consultoria-cabecalho p{margin:0;color:#64748b;font-size:14px;line-height:1.5}
+.consultoria-aviso{margin:0;padding:9px 12px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;color:#9a3412;font-size:12px;line-height:1.45}
+.consultoria-conversa{display:grid;align-content:start;gap:10px;min-height:180px;max-height:460px;overflow-y:auto;padding:14px;border:1px solid #dbe2ea;border-radius:10px;background:#f8fafc}
+.consultoria-vazio p{margin:0 0 10px;color:#475569;font-size:13px}
+.consultoria-sugestoes{display:flex;flex-wrap:wrap;gap:8px}
+.consultoria-sugestoes button{padding:8px 12px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#162033;font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.consultoria-sugestoes button:hover:not(:disabled){border-color:#64748b;background:#f1f5f9}
+.consultoria-sugestoes button:disabled{opacity:.6;cursor:not-allowed}
+.consultoria-mensagem{display:grid;gap:3px;max-width:88%;padding:10px 12px;border-radius:10px;font-size:14px;line-height:1.55}
+.consultoria-mensagem p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.consultoria-fonte{padding-top:5px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px}
+.consultoria-fonte a{color:#1d4ed8;font-weight:600;text-decoration:underline}
+.consultoria-mensagem.do-usuario{justify-self:end;background:#162033;color:#fff}
+.consultoria-mensagem.do-assistente{justify-self:start;border:1px solid #e2e8f0;background:#fff;color:#162033}
+.consultoria-autor{font-size:11px;font-weight:700;opacity:.7}
+.consultoria-digitando{display:flex;align-items:center;gap:8px;color:#64748b}
+.consultoria-digitando .spin{animation:consultoria-girar 1s linear infinite}
+.consultoria-erro{padding:9px 12px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#991b1b;font-size:13px}
+.consultoria-form{display:grid;gap:8px}
+.consultoria-rotulo{color:#475569;font-size:12px;font-weight:700}
+.consultoria-form textarea{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#162033;font:inherit;resize:vertical}
+.consultoria-form textarea:focus-visible,.consultoria-form button:focus-visible,.consultoria-sugestoes button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.consultoria-form button{display:inline-flex;align-items:center;justify-content:center;gap:8px;justify-self:end;padding:10px 16px;border:0;border-radius:8px;background:#162033;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.consultoria-form button:disabled{opacity:.55;cursor:not-allowed}
+@keyframes consultoria-girar{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.consultoria-digitando .spin{animation:none}}
+@media(max-width:640px){.consultoria-mensagem{max-width:100%}.consultoria-form button{justify-self:stretch}}

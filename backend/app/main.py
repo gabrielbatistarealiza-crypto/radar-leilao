@@ -41,6 +41,8 @@ from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
 from app.models.criterio_alerta import CriterioAlerta
 from app.models.notificacao import Notificacao
 from app.routers.alertas import router as alertas_router
+from app.routers.consultoria import criar_router as criar_router_consultoria
+from app.security.auth import usuario_atual
 from app.services.notificacoes import (
     gerar_notificacoes,
     libertar_lock_scheduler_notificacoes,
@@ -241,6 +243,7 @@ app.include_router(corretores_router)
 app.include_router(anuncios_imoveis_router)
 app.include_router(simulacoes_rentabilidade_router)
 app.include_router(alertas_router)
+app.include_router(criar_router_consultoria(usuario_atual))
 
 @app.get("/")
 def home():
