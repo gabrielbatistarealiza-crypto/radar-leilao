@@ -76,6 +76,26 @@ def normalizar_texto(valor):
 
 
 
+def _proxima_data_leilao_expr(hoje):
+    """Retorna a menor data futura entre as datas conhecidas do evento."""
+    datas = (
+        Imovel.data_primeiro_leilao,
+        Imovel.data_segundo_leilao,
+        Imovel.data_licitacao_aberta,
+    )
+    candidatas = []
+    for candidata in datas:
+        comparacoes = [
+            or_(outra.is_(None), outra < hoje, candidata <= outra)
+            for outra in datas
+            if outra is not candidata
+        ]
+        candidatas.append(
+            (and_(candidata.isnot(None), candidata >= hoje, *comparacoes), candidata)
+        )
+    return case(*candidatas, else_=None)
+
+
 def _score_expression():
 
     """
@@ -282,41 +302,7 @@ def _score_expression():
 
 
 
-    proxima_data = case(
-
-        (
-
-            and_(
-
-                Imovel.data_primeiro_leilao.isnot(None),
-
-                Imovel.data_primeiro_leilao >= hoje,
-
-            ),
-
-            Imovel.data_primeiro_leilao,
-
-        ),
-
-        (
-
-            and_(
-
-                Imovel.data_segundo_leilao.isnot(None),
-
-                Imovel.data_segundo_leilao >= hoje,
-
-            ),
-
-            Imovel.data_segundo_leilao,
-
-        ),
-
-        else_=None,
-
-    )
-
-
+    proxima_data = _proxima_data_leilao_expr(hoje)
 
     dias = case(
 
@@ -402,6 +388,8 @@ def _serializar_imovel(imovel):
 
         "data_segundo_leilao": imovel.data_segundo_leilao,
 
+        "data_licitacao_aberta": imovel.data_licitacao_aberta,
+
         "area": imovel.area,
 
         "quartos": imovel.quartos,
@@ -417,6 +405,18 @@ def _serializar_imovel(imovel):
         "modalidade": imovel.modalidade,
 
         "fonte": imovel.fonte,
+
+        "link_edital": imovel.link_edital,
+
+        "leiloeiro": imovel.leiloeiro,
+
+        "processo": imovel.processo,
+
+        "ocupado": imovel.ocupado,
+
+        "aceita_fgts": imovel.aceita_fgts,
+
+        "aceita_financiamento": imovel.aceita_financiamento,
 
         "imagens": imovel.imagens or [],
 
@@ -435,6 +435,8 @@ def listar_imoveis(
     estado: Optional[str] = Query(None),
 
     tipo: Optional[str] = Query(None),
+
+    busca: Optional[str] = Query(None, max_length=120),
 
     modalidade: Optional[str] = Query("Leilão SFI - Edital Único"),
 
@@ -497,6 +499,24 @@ def listar_imoveis(
 ):
 
     query = db.query(Imovel)
+
+    termo_busca = (busca or "").strip()
+    if termo_busca:
+        termo_escapado = (
+            termo_busca.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        padrao_busca = f"%{termo_escapado}%"
+        query = query.filter(
+            or_(
+                Imovel.titulo.ilike(padrao_busca, escape="\\"),
+                Imovel.cidade.ilike(padrao_busca, escape="\\"),
+                Imovel.estado.ilike(padrao_busca, escape="\\"),
+                Imovel.tipo.ilike(padrao_busca, escape="\\"),
+                Imovel.endereco.ilike(padrao_busca, escape="\\"),
+            )
+        )
 
 
 
@@ -664,6 +684,14 @@ def listar_imoveis(
 
         ),
 
+        and_(
+
+            Imovel.data_licitacao_aberta.isnot(None),
+
+            Imovel.data_licitacao_aberta >= hoje,
+
+        ),
+
     )
 
 
@@ -673,6 +701,8 @@ def listar_imoveis(
         Imovel.data_primeiro_leilao.is_(None),
 
         Imovel.data_segundo_leilao.is_(None),
+
+        Imovel.data_licitacao_aberta.is_(None),
 
     )
 
@@ -710,41 +740,7 @@ def listar_imoveis(
 
 
 
-    proxima_data = case(
-
-        (
-
-            and_(
-
-                Imovel.data_primeiro_leilao.isnot(None),
-
-                Imovel.data_primeiro_leilao >= hoje,
-
-            ),
-
-            Imovel.data_primeiro_leilao,
-
-        ),
-
-        (
-
-            and_(
-
-                Imovel.data_segundo_leilao.isnot(None),
-
-                Imovel.data_segundo_leilao >= hoje,
-
-            ),
-
-            Imovel.data_segundo_leilao,
-
-        ),
-
-        else_=None,
-
-    )
-
-
+    proxima_data = _proxima_data_leilao_expr(hoje)
 
     if ordenar == "preco":
 
@@ -797,6 +793,8 @@ def listar_imoveis(
     else:
 
         campo = func.coalesce(
+
+            Imovel.data_licitacao_aberta,
 
             Imovel.data_segundo_leilao,
 

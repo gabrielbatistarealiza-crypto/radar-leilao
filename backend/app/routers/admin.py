@@ -113,6 +113,11 @@ def dashboard_admin(
             (Imovel.data_segundo_leilao.isnot(None))
             & (Imovel.data_segundo_leilao >= hoje)
         )
+        |
+        (
+            (Imovel.data_licitacao_aberta.isnot(None))
+            & (Imovel.data_licitacao_aberta >= hoje)
+        )
     )
 
     ativos = (
@@ -129,6 +134,7 @@ def dashboard_admin(
             (
                 (Imovel.data_primeiro_leilao.isnot(None))
                 | (Imovel.data_segundo_leilao.isnot(None))
+                | (Imovel.data_licitacao_aberta.isnot(None))
             ),
         )
         .scalar()
@@ -276,11 +282,20 @@ def criar_usuario_admin(
             detail="Este e-mail já está cadastrado.",
         )
 
+    tipo = (dados.tipo or "cliente").strip().lower()
+
+    if tipo not in {"cliente", "corretor", "admin"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de usuário inválido.",
+        )
+
     novo_usuario = Usuario(
         nome=dados.nome,
         email=dados.email,
         senha=gerar_hash(dados.senha),
-        admin=(dados.tipo == "admin"),
+        admin=(tipo == "admin"),
+        tipo=tipo,
     )
 
     db.add(novo_usuario)

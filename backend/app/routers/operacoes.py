@@ -175,6 +175,18 @@ def obter_operacao_oportunidade(
     db: Session = Depends(get_db),
     usuario_db: Usuario = Depends(usuario_atual),
 ):
+    # Confere a oportunidade e o acesso ANTES de dizer se existe operação,
+    # para não revelar a quem não tem permissão que ela existe.
+    oportunidade = (
+        db.query(Oportunidade)
+        .filter(Oportunidade.id == oportunidade_id)
+        .first()
+    )
+    if not oportunidade:
+        raise HTTPException(status_code=404, detail="Oportunidade não encontrada.")
+
+    exigir_acesso_oportunidade(usuario_db, oportunidade)
+
     operacao = (
         db.query(Operacao)
         .filter(
@@ -188,16 +200,6 @@ def obter_operacao_oportunidade(
             status_code=404,
             detail="Operação não encontrada.",
         )
-
-    oportunidade = (
-        db.query(Oportunidade)
-        .filter(Oportunidade.id == oportunidade_id)
-        .first()
-    )
-    if not oportunidade:
-        raise HTTPException(status_code=404, detail="Oportunidade não encontrada.")
-
-    exigir_acesso_oportunidade(usuario_db, oportunidade)
 
     return operacao
 
@@ -256,7 +258,7 @@ def atualizar_status_operacao(
 
     if novo_status == "concluida":
         operacao.concluido_em = datetime.utcnow()
-    elif novo_status == "cancelada":
+    else:
         operacao.concluido_em = None
 
     db.commit()

@@ -24,14 +24,3 @@ class AnuncioImagem(Base):
         "AnuncioImovel",
         back_populates="fotos",
     )
-
-fotos = relationship(
-    "AnuncioImagem",
-    back_populates="anuncio",
-    cascade="all, delete-orphan",
-    order_by="AnuncioImagem.ordem",
-)
-
-@property
-def imagens(self):
-    return [foto.url for foto in self.fotos]

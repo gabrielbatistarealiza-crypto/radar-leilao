@@ -75,7 +75,7 @@ def _atualizar_lista_caixa_agendada():
 
 
 def _proxima_atualizacao_caixa():
-    # Usa o fuso horÃ¡rio local configurado no servidor (Lisboa neste ambiente)
+    # Usa o fuso horário local configurado no servidor (Lisboa neste ambiente)
     # sem depender da base tzdata no Windows.
     agora = datetime.now().astimezone()
     proxima = agora.replace(hour=3, minute=0, second=0, microsecond=0)
@@ -85,18 +85,18 @@ def _proxima_atualizacao_caixa():
 
 
 async def _rotina_atualizacao_caixa():
-    """Atualiza os CSVs da Caixa diariamente Ã s 03:00 (horÃ¡rio de Lisboa)."""
+    """Atualiza os CSVs da Caixa diariamente às 03:00 (horário de Lisboa)."""
     while True:
         proxima = _proxima_atualizacao_caixa()
         espera = (proxima - datetime.now().astimezone()).total_seconds()
-        logger.info("PrÃ³xima atualizaÃ§Ã£o automÃ¡tica da Caixa: %s", proxima.isoformat())
+        logger.info("Próxima atualização automática da Caixa: %s", proxima.isoformat())
         await asyncio.sleep(max(0, espera))
 
         try:
             resultado = await asyncio.to_thread(_atualizar_lista_caixa_agendada)
-            logger.info("AtualizaÃ§Ã£o automÃ¡tica da Caixa concluÃ­da: %s", resultado)
+            logger.info("Atualização automática da Caixa concluída: %s", resultado)
         except Exception:
-            logger.exception("Falha na atualizaÃ§Ã£o automÃ¡tica da Caixa")
+            logger.exception("Falha na atualização automática da Caixa")
 
 def _processar_fila_fotos_caixa_agendada(limite: int = 50):
     db = SessionLocal()
@@ -219,8 +219,8 @@ async def _rotina_fila_fotos_caixa():
 
             if resultado.get("processados", 0) == 0:
                 logger.info(
-                    "Fila de fotos Caixa sem imÃ³veis pendentes. "
-                    "Nova verificaÃ§Ã£o em 10 minutos."
+                    "Fila de fotos Caixa sem imóveis pendentes. "
+                    "Nova verificação em 10 minutos."
                 )
 
                 await asyncio.sleep(600)
@@ -261,12 +261,13 @@ async def _rotina_notificacoes():
 
     try:
         while True:
-            quantidade = await asyncio.to_thread(_gerar_notificacoes_agendadas)
-            logger.info("Verificação de notificações concluída: %s novas", quantidade)
+            try:
+                quantidade = await asyncio.to_thread(_gerar_notificacoes_agendadas)
+                logger.info("Verificação de notificações concluída: %s novas", quantidade)
+            except Exception:
+                # Uma falha pontual não pode encerrar o scheduler para sempre.
+                logger.exception("Falha ao gerar notificações de alertas")
             await asyncio.sleep(900)
-    except Exception:
-        logger.exception("Falha ao gerar notificações de alertas")
-        await asyncio.sleep(900)
     finally:
         try:
             libertar_lock_scheduler_notificacoes(db)
@@ -325,6 +326,15 @@ async def lifespan(app: FastAPI):
 
         with suppress(asyncio.CancelledError):
             await tarefa_notificacoes
+
+# Em produção, defina RADAR_CORS_ORIGINS="https://seusite.com,https://www.seusite.com"
+ORIGENS_EXTRAS = [
+    origem.strip()
+    for origem in os.getenv("RADAR_CORS_ORIGINS", "").split(",")
+    if origem.strip()
+]
+
+
 class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
@@ -341,7 +351,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ] + (["http://127.0.0.1:5174"] if os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") == "1" else []),
+    ] + (["http://127.0.0.1:5174"] if os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") == "1" else []) + ORIGENS_EXTRAS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

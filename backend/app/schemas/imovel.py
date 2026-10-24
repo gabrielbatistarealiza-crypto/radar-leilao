@@ -32,6 +32,7 @@ class ImovelBase(BaseModel):
     desconto: Optional[float] = None
     data_primeiro_leilao: Optional[date] = None
     data_segundo_leilao: Optional[date] = None
+    data_licitacao_aberta: Optional[date] = None
     area: Optional[float] = None
     quartos: Optional[int] = None
     banheiros: Optional[int] = None
@@ -40,6 +41,12 @@ class ImovelBase(BaseModel):
     imagem: Optional[str] = None
     modalidade: Optional[str] = None
     fonte: Optional[str] = None
+    link_edital: Optional[str] = None
+    leiloeiro: Optional[str] = None
+    processo: Optional[str] = None
+    ocupado: Optional[bool] = None
+    aceita_fgts: Optional[bool] = None
+    aceita_financiamento: Optional[bool] = None
 
 
 class ImovelCreate(ImovelBase):
