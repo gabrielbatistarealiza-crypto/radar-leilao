@@ -62,6 +62,25 @@ ESPERA_CAIXA_OCUPADA = 60
 
 Base.metadata.create_all(bind=engine)
 
+
+def configurar_logging_da_app():
+    """Mostra as mensagens INFO dos modulos da app (loggers "app.*").
+
+    O uvicorn so configura os seus proprios loggers; sem isto, os da app ficam
+    no nivel WARNING por omissao e as mensagens INFO (por exemplo, "rotinas
+    desativadas") nao aparecem nos logs. Pode ser chamada varias vezes: so
+    acrescenta o handler uma vez.
+    """
+    logger_app = logging.getLogger("app")
+    logger_app.setLevel(logging.INFO)
+    if not any(getattr(h, "_radar_logging", False) for h in logger_app.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s: %(message)s"))
+        handler._radar_logging = True
+        logger_app.addHandler(handler)
+
+
+configurar_logging_da_app()
 logger = logging.getLogger(__name__)
 
 
