@@ -182,8 +182,10 @@ cada commit em `main`; as Pull Request Previews estão desligadas em ambos.
 
 **Por investigar ou por fazer**
 - A causa de "galeria não encontrada" (secção 8).
-- A configuração do logging da app, para as mensagens INFO aparecerem.
-- O aviso do `npm audit` no build do site.
+- A configuração do logging da app, para as mensagens INFO aparecerem: corrigida no
+  PR #2 (`fix/logging-info`), por integrar em `main`.
+- O aviso do `npm audit` no build do site: corrigido no PR #3 (`fix/npm-audit-vite`,
+  vite 8.2.4 e source-map-js 1.2.2), por integrar em `main`.
 - A validação da Caixa e a recuperação das datas (secção 2).
 
 ## 8. Registo de 24/10/2026: worker de fotos antigo no Render
@@ -221,9 +223,9 @@ cada commit em `main`; as Pull Request Previews estão desligadas em ambos.
   gravação.
 - As mensagens `logger.info` da app (por exemplo "Rotinas automáticas em segundo plano
   desativadas por configuração.") **não aparecem nos logs**. Foi confirmado localmente:
-  com a configuração de logging do uvicorn, o logger da app fica em WARNING. Por fazer:
-  configurar o logging da app para mostrar INFO. Até lá, a prova de que as rotinas estão
-  desligadas é `GET /caixa/enriquecer-datas/status` (`"habilitado": false`) e a ausência
-  de linhas `[BROWSER]`/`[GALERIA]` nos logs.
+  com a configuração de logging do uvicorn, o logger da app fica em WARNING. A correção
+  está no PR #2 (`fix/logging-info`), por integrar em `main`. Até lá, a prova de que as
+  rotinas estão desligadas é `GET /caixa/enriquecer-datas/status` (`"habilitado": false`)
+  e a ausência de linhas `[BROWSER]`/`[GALERIA]` nos logs.
 - Não acordar a instância (nem com `/health`) antes de confirmar que as variáveis estão
   ativas.
