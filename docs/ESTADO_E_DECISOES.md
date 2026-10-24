@@ -8,14 +8,29 @@ ficheiros**: substituiriam o código atual por versões antigas.
 
 ## 1. Ordem para publicar
 
-1. Faz um backup da base de produção: `.\backup_postgres.ps1` (gera um `.dump` dentro do contentor).
-2. Aplica as migrações de esquema em `backend/migrations/` (podem ser repetidas):
-   - `001_add_tipo_to_usuarios.sql`
-   - `002_add_data_licitacao_aberta_to_imoveis.sql`
-3. Executa `migracoes/migracao_tri_estado.sql` **uma única vez**, antes do código novo.
-   Converte `false` em `NULL` em `ocupado`, `aceita_fgts` e `aceita_financiamento`.
-   Uma segunda execução apagaria os "Não" reais de financiamento até à importação
-   seguinte. As instruções estão no cabeçalho do ficheiro.
+A produção é a base PostgreSQL 18 do **Render**. O contentor local
+(`aremmata-patrimonio-postgres`, PostgreSQL 16) é só de desenvolvimento.
+
+1. Faz um backup do Render: `.\backup_render.ps1`. Usa o `pg_dump` 18 instalado no
+   Windows (`C:\Program Files\PostgreSQL\18\bin`) e valida o dump com
+   `pg_restore --list`. A ligação vem de `RADAR_RENDER_DB_URL`, definida só nessa
+   sessão do terminal (instruções no cabeçalho); a senha não aparece na linha de
+   comando. O `backup_postgres.ps1` e a tarefa agendada das 02:00 copiam **só a base
+   local**.
+2. Esquema: no Render já existem `usuarios.tipo`, `imoveis.data_licitacao_aberta` e
+   `caixa_data_worker_state` (confirmado em 24/10/2026, só leitura). As migrações de
+   `backend/migrations/` (`001`, `002`) só são precisas numa base que ainda não as tenha;
+   podem ser repetidas.
+3. Executa `migracoes/migracao_tri_estado_restrita.sql`: converte `false` em `NULL` em
+   `ocupado` e `aceita_fgts` (2.284 imóveis cada em 24/10/2026). Não mexe em
+   `aceita_financiamento`, que vem do CSV e é real. Corre primeiro em ensaio (termina com
+   `ROLLBACK`) e só grava com `.\executar_sql_render.ps1 <ficheiro> -Confirmar`;
+   instruções no cabeçalho. A
+   `migracao_tri_estado.sql` original fica só para bases antigas e corre **uma única vez**.
+   **Estado: aplicada no Render em 24/10/2026**, depois do backup
+   `render_2026-10-24_05-16-30.dump` e de um ensaio. Saída: `UPDATE 2284` em `ocupado`
+   e em `aceita_fgts`, financiamento sem alteração (4.026 Não, 33 Sim), `COMMIT`. Não é
+   preciso voltar a corrê-la no Render; repeti-la não perde dados.
 4. Configura as variáveis (secção 4) e publica o código.
 5. Faz a primeira importação: às 03:00 ou com `POST /caixa/atualizar`. Os CSVs da Caixa não estão
    no Git; são descarregados nessa altura.
