@@ -1,6 +1,8 @@
 import logging
+import time
 
 import re
+from sqlalchemy import and_, not_, or_
 
 from typing import List
 
@@ -14,7 +16,9 @@ from app.models.imovel import Imovel, ImovelImagem, ImovelFotoVerificacao
 
 from app.schemas.imovel_scraper import ImovelScraper
 
-from app.scrapers.caixa import CaixaScraper
+from app.scrapers.caixa import CaixaFalhaTecnicaError, CaixaScraper
+from app.services.caixa_datas_worker import reativar_worker_datas_caixa
+from app.services.caixa_acesso import intervalo_entre_fotos, registrar_bloqueio_caixa
 
 from app.services.caixa_downloader import CaixaDownloader
 
@@ -38,12 +42,15 @@ class ScraperService:
     def __init__(self, db: Session):
 
         self.db = db
+        self.urls_vistas: set[str] = set()
 
 
 
     def executar_scraper_caixa(self) -> List[Imovel]:
 
         """Executa o scraper da Caixa e salva/atualiza os imóveis no banco."""
+
+        self.urls_vistas = set()
 
         scraper = CaixaScraper()
 
@@ -128,6 +135,10 @@ class ScraperService:
 
 
                     dados_dict["url"] = url_imovel
+
+                    # Conta a URL já aqui: mesmo que o salvamento falhe depois, o imóvel
+                    # continua na lista da Caixa e não pode ser tratado como removido.
+                    self.urls_vistas.add(url_imovel)
 
 
 
@@ -240,7 +251,7 @@ class ScraperService:
                 self.db.rollback()
 
                 logger.exception(
-                    f"ERRO AO SALVAR IMÃƒâ€œVEL {imovel_dto.titulo}: "
+                    f"ERRO AO SALVAR IMÓVEL {imovel_dto.titulo}: "
                     f"{type(e).__name__}: {e}"
 
                 )
@@ -400,6 +411,12 @@ class ScraperService:
 
             download = CaixaDownloader().baixar_todos()
 
+            if download.get("bloqueado"):
+                # CAPTCHA no download: grava a espera partilhada. Os CSVs que já
+                # estavam no disco continuam a ser lidos; a limpeza de imóveis
+                # ausentes não corre porque o download ficou incompleto.
+                registrar_bloqueio_caixa(self.db, "importacao")
+
             imoveis = self.executar_scraper_caixa()
 
 
@@ -408,14 +425,10 @@ class ScraperService:
 
             estados_baixados = set(download.get("sucesso", []))
 
-            urls_ativas = {
-
+            urls_ativas = set(self.urls_vistas) | {
                 imovel.url
-
                 for imovel in imoveis
-
                 if imovel.url
-
             }
 
 
@@ -475,6 +488,10 @@ class ScraperService:
                 download.get("sucesso", [])
 
             )
+
+            # Novos imóveis entram sem datas (o CSV não as traz): volta a pôr a
+            # fila de datas a correr desde o início. Não mexe num bloqueio ativo.
+            reativar_worker_datas_caixa(self.db)
 
 
 
@@ -537,6 +554,153 @@ class ScraperService:
             raise
 
 
+
+
+    def enriquecer_datas_caixa(
+        self,
+        limite: int = 3,
+        depois_id: int | None = None,
+    ) -> dict:
+        """Consulta uma pequena leva de anúncios para completar datas ausentes."""
+        modalidade_licitacao_aberta = Imovel.modalidade.ilike(
+            "%licitação aberta%"
+        )
+        pendencia_datas_leilao = or_(
+            Imovel.data_primeiro_leilao.is_(None),
+            Imovel.data_segundo_leilao.is_(None),
+        )
+        pendencia_data = or_(
+            and_(
+                modalidade_licitacao_aberta,
+                Imovel.data_licitacao_aberta.is_(None),
+            ),
+            and_(
+                or_(
+                    Imovel.modalidade.is_(None),
+                    not_(modalidade_licitacao_aberta),
+                ),
+                pendencia_datas_leilao,
+            ),
+        )
+        consulta = self.db.query(Imovel).filter(
+            Imovel.fonte.ilike("%caixa%"),
+            Imovel.url.isnot(None),
+            pendencia_data,
+        )
+        if depois_id is not None:
+            consulta = consulta.filter(Imovel.id > depois_id)
+
+        imoveis = consulta.order_by(Imovel.id.asc()).limit(limite).all()
+        scraper = CaixaScraper()
+        processados = 0
+        atualizados = 0
+        sem_dados = 0
+        erros = 0
+        falhas_tecnicas = 0
+        falha_tecnica_id = None
+        bloqueado = False
+        resultados = []
+
+        try:
+            for imovel in imoveis:
+                processados += 1
+                try:
+                    datas = scraper.extrair_datas_leilao(imovel.url)
+                    campos = (
+                        "data_primeiro_leilao",
+                        "data_segundo_leilao",
+                        "data_licitacao_aberta",
+                    )
+                    alterou = False
+                    for campo, data in zip(campos, datas):
+                        if getattr(imovel, campo) is None and data is not None:
+                            setattr(imovel, campo, data)
+                            alterou = True
+
+                    if alterou:
+                        atualizados += 1
+                    else:
+                        sem_dados += 1
+                    resultados.append(
+                        {
+                            "id": imovel.id,
+                            "titulo": imovel.titulo,
+                            "status": "ATUALIZADO" if alterou else "SEM_DATAS_NOVAS",
+                        }
+                    )
+                    if scraper.bloqueado:
+                        bloqueado = True
+                        resultados[-1]["status"] = "BLOQUEADO_CAIXA"
+                        break
+                except CaixaFalhaTecnicaError as erro:
+                    # Não é "sem datas": a página não foi lida. Para a leva para
+                    # quem chamou decidir se tenta o mesmo imóvel outra vez.
+                    falhas_tecnicas += 1
+                    falha_tecnica_id = imovel.id
+                    logger.warning(
+                        "Falha técnica ao ler datas do imóvel %s: %s",
+                        imovel.id,
+                        erro,
+                    )
+                    resultados.append(
+                        {
+                            "id": imovel.id,
+                            "titulo": imovel.titulo,
+                            "status": "FALHA_TECNICA",
+                        }
+                    )
+                    break
+                except Exception as erro:
+                    erros += 1
+                    logger.warning(
+                        "Falha ao enriquecer datas do imóvel %s: %s",
+                        imovel.id,
+                        type(erro).__name__,
+                    )
+                    resultados.append(
+                        {"id": imovel.id, "titulo": imovel.titulo, "status": "ERRO"}
+                    )
+
+            if atualizados:
+                self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        finally:
+            if scraper.driver:
+                try:
+                    scraper.driver.quit()
+                except Exception:
+                    pass
+                scraper.driver = None
+
+        # Último imóvel realmente consultado: se a leva parou a meio (bloqueio ou
+        # falha técnica), os seguintes não podem ser dados como vistos.
+        ultimo_id = imoveis[processados - 1].id if processados else depois_id
+        tem_mais = bool(
+            ultimo_id is not None
+            and self.db.query(Imovel.id)
+            .filter(
+                Imovel.fonte.ilike("%caixa%"),
+                Imovel.url.isnot(None),
+                pendencia_data,
+                Imovel.id > ultimo_id,
+            )
+            .first()
+        )
+        return {
+            "processados": processados,
+            "atualizados": atualizados,
+            "sem_dados_novos": sem_dados,
+            "erros": erros,
+            "falhas_tecnicas": falhas_tecnicas,
+            "falha_tecnica": falha_tecnica_id is not None,
+            "falha_tecnica_id": falha_tecnica_id,
+            "bloqueado": bloqueado,
+            "tem_mais": tem_mais,
+            "proximo_depois_id": ultimo_id if tem_mais else None,
+            "resultados": resultados,
+        }
 
 
     def _remover_imoveis_caixa_inativos(self, urls_ativas: set[str]) -> int:
@@ -689,9 +853,13 @@ class ScraperService:
 
             browser.iniciar()
 
-
+            pausa = intervalo_entre_fotos()
 
             for imovel in pendentes:
+
+                # Espaça as páginas da CAIXA (antes só havia os 3 s da galeria).
+                if processados:
+                    time.sleep(pausa)
 
                 processados += 1
 

@@ -444,20 +444,15 @@ def criar_oportunidade(
     response_model=OportunidadeResponse,
     status_code=201,
 )
-@router.post(
-    "/anuncio/{anuncio_id}/interesse",
-    response_model=OportunidadeResponse,
-    status_code=201,
-)
 def demonstrar_interesse_anuncio(
     anuncio_id: int,
     db: Session = Depends(get_db),
-    usuario_atual: dict = Depends(usuario_atual),
+    usuario_db: Usuario = Depends(usuario_atual),
 ):
     # Dados do usuário autenticado
-    usuario_id = usuario_atual.get("id")
-    tipo_usuario = usuario_atual.get("tipo")
-    admin = usuario_atual.get("admin", False)
+    usuario_id = usuario_db.id
+    tipo_usuario = getattr(usuario_db, "tipo", None)
+    admin = usuario_e_admin(usuario_db)
 
     if not usuario_id:
         raise HTTPException(

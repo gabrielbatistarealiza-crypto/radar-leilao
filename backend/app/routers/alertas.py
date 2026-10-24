@@ -28,6 +28,7 @@ class CriterioAlertaInput(BaseModel):
     roi_minimo: Optional[Decimal] = Field(default=None, ge=-100, le=10000)
     simulacao_id: Optional[int] = Field(default=None, gt=0)
     alertar_prazos_dias: int = Field(default=7, ge=0, le=90)
+    ativo: bool = True
 
     @model_validator(mode="after")
     def validar_cenario_roi(self):
@@ -204,7 +205,11 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
             filtros_ok = bool(filtros) and all(filtros)
             if criterio.roi_minimo is not None:
                 filtros_ok = filtros_ok and roi_ok
-            datas = [("Primeiro leilão", imovel.data_primeiro_leilao), ("Segundo leilão", imovel.data_segundo_leilao)]
+            datas = [
+                ("Primeiro leilão", imovel.data_primeiro_leilao),
+                ("Segundo leilão", imovel.data_segundo_leilao),
+                ("Licitação aberta", imovel.data_licitacao_aberta),
+            ]
             prazo = [(nome, data, _dias_ate(data)) for nome, data in datas if _dias_ate(data) is not None and 0 <= _dias_ate(data) <= criterio.alertar_prazos_dias]
             prazo_relevante = bool(prazo)
             if prazo_relevante:
@@ -220,6 +225,7 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
                     "imovel": {"id": imovel.id, "titulo": imovel.titulo, "cidade": imovel.cidade, "estado": imovel.estado,
                                "valor_leilao": imovel.valor_leilao, "desconto": float(desconto) if desconto is not None else None,
                                "data_primeiro_leilao": imovel.data_primeiro_leilao, "data_segundo_leilao": imovel.data_segundo_leilao,
+                               "data_licitacao_aberta": imovel.data_licitacao_aberta,
                                "url": imovel.url},
                     "corresponde": filtros_ok, "roi_estimado": float(roi) if roi is not None else None,
                     "pendencia_custos": pendencia, "motivos": motivos,

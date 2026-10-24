@@ -86,3 +86,20 @@ frontend/src/*antes*.jsx
 frontend/src/App*.backup*.jsx
 frontend/src/App*.antes*.jsx
 frontend/src/App.jsx.*
+
+# =========================
+# Copias de seguranca locais e ferramentas de uso unico
+# =========================
+*.bak
+*.backup_*
+backend/app_backup_encoding*/
+/App-atual.txt
+/corrigir_*.py
+
+# Migracoes de esquema: versionadas (a regra *.sql acima e para dumps)
+!backend/migrations/*.sql
+!migracoes/*.sql
+
+# Listas da Caixa: geradas pelo download diario (nao versionar)
+backend/app/scrapers/dados/*.csv
+backend/app/scrapers/dados/_anterior/

@@ -28,11 +28,13 @@ class Imovel(Base):
 
     data_primeiro_leilao = Column(Date, nullable=True)
     data_segundo_leilao = Column(Date, nullable=True)
+    data_licitacao_aberta = Column(Date, nullable=True)
 
-    ocupado = Column(Boolean, default=False)
+    # None = não informado; True/False só quando a fonte informa de fato.
+    ocupado = Column(Boolean, nullable=True)
 
-    aceita_fgts = Column(Boolean, default=False)
-    aceita_financiamento = Column(Boolean, default=False)
+    aceita_fgts = Column(Boolean, nullable=True)
+    aceita_financiamento = Column(Boolean, nullable=True)
 
     link_edital = Column(String(500))
 

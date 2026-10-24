@@ -251,6 +251,30 @@ def atualizar_anuncio(
             detail="O valor anunciado deve ser maior que zero.",
         )
 
+    if dados.valor_anunciado > dados.valor_mercado:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "O valor anunciado não pode ser maior "
+                "que o valor de mercado."
+            ),
+        )
+
+    desconto_atualizado = (
+        (dados.valor_mercado - dados.valor_anunciado)
+        / dados.valor_mercado
+    ) * 100
+
+    if desconto_atualizado < 20:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Imóvel não atende ao critério da plataforma. "
+                f"Desconto calculado: {desconto_atualizado:.2f}%. "
+                f"O mínimo exigido é 20%."
+            ),
+        )
+
     anuncio.titulo = dados.titulo
     anuncio.tipo = dados.tipo
     anuncio.endereco = dados.endereco
@@ -483,23 +507,6 @@ def adicionar_foto(
         "ordem": foto.ordem,
     }
 
-@router.get(
-    "/publicados",
-    response_model=list[AnuncioImovelResponse],
-)
-def listar_anuncios_publicados(
-    db: Session = Depends(get_db),
-):
-    return (
-        db.query(AnuncioImovel)
-        .filter(
-            AnuncioImovel.status == "publicado",
-            AnuncioImovel.ativo.is_(True),
-        )
-        .order_by(AnuncioImovel.criado_em.desc())
-        .all()
-    )
-
 @router.get("/{anuncio_id}/fotos")
 def listar_fotos(
     anuncio_id: int,
@@ -522,6 +529,7 @@ def listar_fotos(
         db,
         usuario,
         anuncio.corretor_id,
+        anuncio,
     )
 
     return [

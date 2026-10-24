@@ -14,6 +14,7 @@ class ImovelScraper(BaseModel):
     desconto: Optional[float] = None
     data_primeiro_leilao: Optional[date] = None
     data_segundo_leilao: Optional[date] = None
+    data_licitacao_aberta: Optional[date] = None
     area_util: Optional[float] = None
     area: Optional[float] = None
     quartos: Optional[int] = None
@@ -24,6 +25,8 @@ class ImovelScraper(BaseModel):
     imagens: List[str] = Field(default_factory=list)
     modalidade: Optional[str] = None
     fonte: Optional[str] = None
+    # None = não informado (diferente de False = não aceita)
+    aceita_financiamento: Optional[bool] = None
 
     class Config:
         from_attributes = True

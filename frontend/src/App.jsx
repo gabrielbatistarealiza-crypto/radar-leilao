@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Login from "./Login";
+import Admin from "./Admin";
+import Oportunidade from "./Oportunidade";
+import MinhasOportunidades from "./MinhasOportunidades";
+import Corretor from "./Corretor";
+import StatusCaixa from "./StatusCaixa";
+import Alertas from "./Alertas";
+import Consultoria from "./Consultoria";
 import {
   Search,
   MapPin,
@@ -20,16 +28,44 @@ import {
   BedDouble,
   Bath,
   Car,
+  LogOut,
+  Columns3,
 } from "lucide-react";
 
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+function papelDoUsuario(usuario) {
+  if (usuario?.admin === true || usuario?.tipo === "admin") {
+    return "admin";
+  }
+
+  return ["cliente", "corretor"].includes(usuario?.tipo)
+    ? usuario.tipo
+    : null;
+}
+
+const ROTULOS_PAPEL = {
+  cliente: "Cliente",
+  corretor: "Corretor",
+  admin: "Administrador",
+};
 
 function App() {
+  const [token, setToken] = useState(
+    () => localStorage.getItem("radar-leilao-token")
+  );
+
+  const [usuario, setUsuario] = useState(null);
+  const [verificandoAutenticacao, setVerificandoAutenticacao] = useState(true);
+  const papel = papelDoUsuario(usuario);
+  const ehAdministrador = papel === "admin";
+
   const [imoveis, setImoveis] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
+  const requisicaoImoveisAtual = useRef(0);
 
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(0);
@@ -40,7 +76,7 @@ function App() {
       const salvos = localStorage.getItem("radar-leilao-favoritos");
 
       if (!salvos) return [];
-
+      
       const dados = JSON.parse(salvos);
 
       return [...new Set(
@@ -59,23 +95,6 @@ function App() {
     }
   });
 
-
-  const alternarFavoritos = (imovel) => {
-    const id = imovel?.id;
-    if (id == null) return;
-
-    setFavoritos((atuais) => {
-      const jaFavoritado = atuais.some(
-        (favoritoId) => String(favoritoId) === String(id)
-      );
-
-      return jaFavoritado
-        ? atuais.filter(
-            (favoritoId) => String(favoritoId) !== String(id)
-          )
-        : [...atuais, id];
-    });
-  };
 
   const [mostrarFavoritos, setMostrarFavoritos] = useState(false);
 
@@ -97,11 +116,62 @@ function App() {
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [galeriaAberta, setGaleriaAberta] = useState(null);
   const [fotoAtiva, setFotoAtiva] = useState(0);
+  const [fotoDetalhesAtiva, setFotoDetalhesAtiva] = useState(0);
   const [imovelDetalhes, setImovelDetalhes] = useState(null);
+  const [oportunidadeSelecionada, setOportunidadeSelecionada] = useState(null);
   const [custosArremate, setCustosArremate] = useState({});
+  const [cenariosSelecionados, setCenariosSelecionados] = useState({});
+  const [imoveisComparacao, setImoveisComparacao] = useState([]);
   const [pesquisaVersion, setPesquisaVersion] = useState(0);
 
 
+
+  useEffect(() => {
+    async function verificarUsuario() {
+      if (!token) {
+        setUsuario(null);
+        setVerificandoAutenticacao(false);
+        return;
+      }
+
+      try {
+        const resposta = await fetch(`${API_URL}/usuarios/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!resposta.ok) {
+          throw new Error("Sessão inválida.");
+        }
+
+        const dados = await resposta.json();
+
+        setUsuario(dados);
+      } catch (erro) {
+        console.error("Erro ao verificar autenticação:", erro);
+
+        localStorage.removeItem("radar-leilao-token");
+        setToken(null);
+        setUsuario(null);
+      } finally {
+        setVerificandoAutenticacao(false);
+      }
+    }
+
+    verificarUsuario();
+  }, [token]);
+
+  function sair() {
+    localStorage.removeItem("radar-leilao-token");
+    setUsuario(null);
+    setToken(null);
+    setVerificandoAutenticacao(false);
+
+    if (window.location.pathname === "/admin") {
+      window.history.replaceState({}, "", "/");
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem(
@@ -109,20 +179,20 @@ function App() {
       JSON.stringify(favoritos)
     );
   }, [favoritos]);
-
+ 
   // =========================================================
-  // FORMATA??O
+  // FORMATAÇÃO
   // =========================================================
 
   function dinheiro(valor) {
     if (valor === null || valor === undefined || valor === "") {
-      return "NÃ£o informado";
+      return "Não informado";
     }
 
     const numero = Number(valor);
 
     if (!Number.isFinite(numero)) {
-      return "NÃ£o informado";
+      return "Não informado";
     }
 
     return numero.toLocaleString("pt-BR", {
@@ -132,13 +202,27 @@ function App() {
   }
 
   function formatarData(data) {
-    if (!data) return "NÃ£o informada";
+    if (!data) return "Não informada";
 
     const valor = new Date(`${data}T00:00:00`);
 
     return Number.isNaN(valor.getTime())
-      ? "NÃ£o informada"
+      ? "Não informada"
       : valor.toLocaleDateString("pt-BR");
+  }
+
+  function dataCivil(data) {
+    if (!data) return null;
+    const correspondencia = String(data).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (correspondencia) {
+      return new Date(
+        Number(correspondencia[1]),
+        Number(correspondencia[2]) - 1,
+        Number(correspondencia[3])
+      );
+    }
+    const valor = new Date(data);
+    return Number.isNaN(valor.getTime()) ? null : valor;
   }
 
   function analiseFinanceira(imovel, custosPersonalizados = {}) {
@@ -264,6 +348,34 @@ function App() {
     };
   }
 
+  function analiseDoCenario(imovel, cenario) {
+    const base = analiseFinanceira(imovel, {});
+    const custosNaoInformados = cenario.custos_nao_informados || [];
+    const temCustosAusentes = custosNaoInformados.length > 0;
+    const lucro = Number(cenario.lucro_estimado);
+    const roi = cenario.roi == null ? null : Number(cenario.roi);
+    const margem = cenario.margem_revenda == null ? null : Number(cenario.margem_revenda);
+    return {
+      ...base,
+      leilao: Number(cenario.preco_aquisicao),
+      comissao: 0,
+      itbi: Number(cenario.impostos_taxas) || 0,
+      registro: Number(cenario.custos_juridicos) || 0,
+      outrosCustos: Number(cenario.outras_despesas) || 0,
+      custoVenda: 0,
+      custoReforma: Number(cenario.reformas) || 0,
+      custoTotal: Number(cenario.custo_total),
+      custoInvestimento: Number(cenario.custo_total),
+      valorRevenda: Number(cenario.valor_revenda),
+      receitaLiquidaRevenda: Number(cenario.valor_revenda),
+      lucroRealEstimado: Number.isFinite(lucro) ? lucro : null,
+      retornoSobreInvestimento: !temCustosAusentes && Number.isFinite(roi) ? roi : null,
+      margemSeguranca: !temCustosAusentes && Number.isFinite(margem) ? margem : null,
+      custosNaoInformados,
+      cenario,
+    };
+  }
+
   function calcularDesconto(imovel) {
     const avaliacao = Number(imovel.valor_avaliacao);
     const leilao = Number(imovel.valor_leilao);
@@ -298,83 +410,89 @@ function App() {
     return Math.max(0, avaliacao - leilao);
   }
 
-  function calcularScoreOportunidade(imovel) {
+ function calcularScoreOportunidade(imovel, custosPersonalizados = {}, cenarioSelecionado = null) {
   const desconto = calcularDesconto(imovel);
   const economia = calcularEconomia(imovel);
 
-  const analise = analiseFinanceira(imovel);
+  const analise = cenarioSelecionado
+    ? analiseDoCenario(imovel, cenarioSelecionado)
+    : analiseFinanceira(imovel, custosPersonalizados);
 
-  const economiaPorM2 =
-    imovel.economia_m2 !== null && imovel.economia_m2 !== undefined
-      ? Number(imovel.economia_m2)
-      : null;
+  const area = Number(
+    imovel?.area_util ?? imovel?.area ?? 0
+  );
 
   // =====================================================
-  // 1. DESCONTO â€” 40 PONTOS
+  // 1. DESCONTO — 30 PONTOS
   // =====================================================
 
   const pontosDesconto =
     desconto !== null
-      ? Math.min(40, Math.max(0, Math.round(desconto)))
+      ? Math.min(30, Math.max(0, Math.round(desconto)))
       : 0;
 
   // =====================================================
-  // 2. ECONOMIA TOTAL â€” 20 PONTOS
+  // 2. ECONOMIA TOTAL — 15 PONTOS
   // =====================================================
 
   let pontosEconomia = 0;
 
-  if (economia != null && economia > 0) {
+  if (economia > 0) {
     if (economia >= 100000) {
-      pontosEconomia = 20;
+      pontosEconomia = 15;
     } else if (economia >= 50000) {
-      pontosEconomia = 16;
-    } else if (economia >= 30000) {
       pontosEconomia = 12;
+    } else if (economia >= 30000) {
+      pontosEconomia = 9;
     } else if (economia >= 15000) {
-      pontosEconomia = 8;
+      pontosEconomia = 6;
     } else if (economia >= 5000) {
-      pontosEconomia = 4;
+      pontosEconomia = 3;
     }
   }
 
   // =====================================================
-  // 3. ECONOMIA POR mÂ² â€” 15 PONTOS
+  // 3. ECONOMIA POR m² — 10 PONTOS
   // =====================================================
+
+  const economiaPorM2 =
+    Number.isFinite(economia) &&
+    Number.isFinite(area) &&
+    area > 0
+      ? economia / area
+      : null;
 
   let pontosEconomiaM2 = 0;
 
-  if (economiaPorM2 != null && economiaPorM2 > 0) {
+  if (economiaPorM2 !== null && economiaPorM2 > 0) {
     if (economiaPorM2 >= 2000) {
-      pontosEconomiaM2 = 15;
+      pontosEconomiaM2 = 10;
     } else if (economiaPorM2 >= 1500) {
-      pontosEconomiaM2 = 12;
+      pontosEconomiaM2 = 8;
     } else if (economiaPorM2 >= 1000) {
-      pontosEconomiaM2 = 9;
-    } else if (economiaPorM2 >= 500) {
       pontosEconomiaM2 = 6;
+    } else if (economiaPorM2 >= 500) {
+      pontosEconomiaM2 = 4;
     } else if (economiaPorM2 >= 250) {
-      pontosEconomiaM2 = 3;
+      pontosEconomiaM2 = 2;
     }
   }
 
   // =====================================================
-  // 4. DADOS ESSENCIAIS â€” 15 PONTOS
+  // 4. DADOS ESSENCIAIS — 15 PONTOS
   // =====================================================
 
   const temDesconto = desconto !== null;
-  const temArea = Number(
-    imovel?.area_util ?? imovel?.area ?? 0
-  ) > 0;
+
+  const temArea = area > 0;
 
   const temLocalizacao = Boolean(
     imovel?.cidade && imovel?.estado
   );
 
-  const temValores = Boolean(
+  const temValores =
     Number(imovel?.valor_avaliacao) > 0 &&
-    Number(imovel?.valor_leilao) > 0
-  );
+    Number(imovel?.valor_leilao) > 0;
 
   const dadosCompletos = [
     temDesconto,
@@ -390,54 +508,94 @@ function App() {
     (temValores ? 3 : 0);
 
   // =====================================================
-  // 5. DATA DO LEILÃƒO â€” 10 PONTOS
+  // 5. DATA DO LEILÃO — 10 PONTOS
   // =====================================================
 
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
 
   const datasLeilao = [
-  imovel?.data_primeiro_leilao,
-  imovel?.data_segundo_leilao,
-]
-  .filter(Boolean)
-  .map((data) => {
-    const d = new Date(data);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  })
-  .filter((data) => !Number.isNaN(data.getTime()))
-  .sort((a, b) => a - b);
+    imovel?.data_primeiro_leilao,
+    imovel?.data_segundo_leilao,
+    imovel?.data_licitacao_aberta,
+  ]
+    .filter(Boolean)
+    .map(dataCivil)
+    .filter(Boolean)
+    .sort((a, b) => a - b);
 
-const datasFuturas = datasLeilao.filter((data) => data >= hoje);
-
-const proximaDataLeilao =
-  datasFuturas.length > 0 ? datasFuturas[0] : null;
-
-const leilaoJaRealizado =
-  datasLeilao.length > 0 && !proximaDataLeilao;
-
-let pontosData = 0;
-let diasAteLeilao = null;
-
-if (proximaDataLeilao) {
-  diasAteLeilao = Math.ceil(
-    (proximaDataLeilao - hoje) / (1000 * 60 * 60 * 24)
+  const datasFuturas = datasLeilao.filter(
+    (data) => data >= hoje
   );
 
-  if (diasAteLeilao <= 30) {
-    pontosData = 10;
-  } else if (diasAteLeilao <= 90) {
-    pontosData = 8;
-  } else if (diasAteLeilao <= 180) {
-    pontosData = 5;
-  } else {
-    pontosData = 2;
+  const proximaDataLeilao =
+    datasFuturas.length > 0
+      ? datasFuturas[0]
+      : null;
+
+  const leilaoJaRealizado =
+    datasLeilao.length > 0 &&
+    !proximaDataLeilao;
+
+  let pontosData = 0;
+  let diasAteLeilao = null;
+
+  if (proximaDataLeilao) {
+    diasAteLeilao = Math.ceil(
+      (proximaDataLeilao - hoje) /
+        (1000 * 60 * 60 * 24)
+    );
+
+    if (diasAteLeilao <= 30) {
+      pontosData = 10;
+    } else if (diasAteLeilao <= 90) {
+      pontosData = 8;
+    } else if (diasAteLeilao <= 180) {
+      pontosData = 5;
+    } else {
+      pontosData = 2;
+    }
   }
-}
 
   // =====================================================
-  // SCORE FINAL
+  // 6. RESULTADO FINANCEIRO — 20 PONTOS
+  // =====================================================
+
+  let pontosROI = 0;
+  let pontosMargem = 0;
+
+  const roi = analise?.retornoSobreInvestimento;
+  const margem = analise?.margemSeguranca;
+
+  if (Number.isFinite(roi)) {
+    if (roi > 30) {
+      pontosROI = 10;
+    } else if (roi > 20) {
+      pontosROI = 8;
+    } else if (roi > 10) {
+      pontosROI = 5;
+    } else if (roi > 0) {
+      pontosROI = 2;
+    }
+  }
+
+  if (Number.isFinite(margem)) {
+    if (margem > 30) {
+      pontosMargem = 10;
+    } else if (margem > 20) {
+      pontosMargem = 8;
+    } else if (margem > 10) {
+      pontosMargem = 5;
+    } else if (margem > 0) {
+      pontosMargem = 2;
+    }
+  }
+
+  const pontosFinanceiros =
+    pontosROI + pontosMargem;
+
+  // =====================================================
+  // SCORE FINAL — 100 PONTOS
   // =====================================================
 
   const valor = Math.min(
@@ -446,11 +604,12 @@ if (proximaDataLeilao) {
       pontosEconomia +
       pontosEconomiaM2 +
       pontosDados +
-      pontosData
+      pontosData +
+      pontosFinanceiros
   );
 
   // =====================================================
-  // CLASSIFICAÃ‡ÃƒO
+  // CLASSIFICAÇÃO
   // =====================================================
 
   let classe;
@@ -474,29 +633,43 @@ if (proximaDataLeilao) {
     valor,
     classe,
     texto,
+
     desconto,
     economia,
     economiaPorM2,
+
     pontosDesconto,
     pontosEconomia,
     pontosEconomiaM2,
     pontosDados,
     pontosData,
+
+    pontosROI,
+    pontosMargem,
+    pontosFinanceiros,
+
     dadosCompletos,
     diasAteLeilao,
     leilaoJaRealizado,
     proximaDataLeilao,
+
+    roi,
+    margem,
   };
 }
 
-  function decisaoDaOportunidade(imovel) {
-    const score = calcularScoreOportunidade(imovel);
+  function decisaoDaOportunidade(imovel, custosPersonalizados = {}, cenarioSelecionado = null) {
+   const score = calcularScoreOportunidade(
+    imovel,
+    custosPersonalizados,
+    cenarioSelecionado
+  );
     const desconto = calcularDesconto(imovel);
 
     const ocupado = imovel?.ocupado;
 
     // =====================================================
-    // IMÃ“VEL CONFIRMADAMENTE OCUPADO
+    // IMÓVEL CONFIRMADAMENTE OCUPADO
     // =====================================================
 
     if (ocupado === true) {
@@ -504,12 +677,12 @@ if (proximaDataLeilao) {
         classe: "evitar",
         titulo: "Risco elevado",
         descricao:
-          "ImÃ³vel ocupado. Avalie cuidadosamente os custos, prazo e riscos de desocupaÃ§Ã£o antes de arrematar.",
+          "Imóvel ocupado. Avalie cuidadosamente os custos, prazo e riscos de desocupação antes de arrematar.",
         Icone: AlertTriangle
       };
     }
 
-    // LEILÃ•ES JÃ ENCERRADOS
+    // LEILÕES JÁ ENCERRADOS
     const alertas = alertasDoImovel(imovel);
 
     const leiloesEncerrados = alertas.some(
@@ -519,9 +692,9 @@ if (proximaDataLeilao) {
     if (leiloesEncerrados) {
       return {
         classe: "atencao",
-        titulo: "LeilÃ£o sem oportunidade de compra no momento",
+        titulo: "Leilão sem oportunidade de compra no momento",
         descricao:
-          "O imÃ³vel apresenta potencial financeiro, mas todos os leilÃµes identificados jÃ¡ foram realizados. Ã‰ necessÃ¡rio verificar se haverÃ¡ nova oferta ou atualizaÃ§Ã£o do edital.",
+          "O imóvel apresenta potencial financeiro, mas todos os leilões identificados já foram realizados. É necessário verificar se haverá nova oferta ou atualização do edital.",
         Icone: AlertTriangle
       };
     }
@@ -538,31 +711,40 @@ if (proximaDataLeilao) {
         classe: "evitar",
         titulo: "Dados insuficientes",
         descricao:
-          "NÃ£o hÃ¡ informaÃ§Ãµes suficientes para considerar este imÃ³vel uma boa oportunidade.",
+          "Não há informações suficientes para considerar este imóvel uma boa oportunidade.",
         Icone: CircleX
       };
     }
 
-    // LEILÃƒO ACONTECE HOJE
+    // LEILÃO ACONTECE HOJE
     const leilaoHoje = alertas.some(
-      (alerta) => alerta.texto === "LeilÃ£o acontece hoje"
+      (alerta) => alerta.texto === "Leilão acontece hoje"
     );
 
     if (leilaoHoje) {
       return {
         classe: "atencao",
-        titulo: "AÃ§Ã£o imediata necessÃ¡ria",
+        titulo: "Ação imediata necessária",
         descricao:
-          "O leilÃ£o acontece hoje. Confira imediatamente o edital, horÃ¡rio, condiÃ§Ãµes de pagamento e documentaÃ§Ã£o antes de participar.",
+          "O leilão acontece hoje. Confira imediatamente o edital, horário, condições de pagamento e documentação antes de participar.",
         Icone: AlertTriangle
       };
     }
 
-    // LEILÃƒO PRÃ“XIMO
+    if (cenarioSelecionado?.custos_nao_informados?.length) {
+      return {
+        classe: "atencao",
+        titulo: "Custos do cenário a confirmar",
+        descricao: `O cenário “${cenarioSelecionado.nome}” tem custos não informados (${cenarioSelecionado.custos_nao_informados.join(", ")}). Confirme esses valores antes de considerar o resultado financeiro.`,
+        Icone: AlertTriangle,
+      };
+    }
+
+    // LEILÃO PRÓXIMO
     const leilaoProximo = alertas.find(
       (alerta) =>
         alerta.tipo === "warning" &&
-        alerta.texto.startsWith("PrÃ³ximo leilÃ£o em")
+        alerta.texto.startsWith("Próximo leilão em")
     );
 
     if (leilaoProximo && score.valor >= 80) {
@@ -570,7 +752,7 @@ if (proximaDataLeilao) {
         classe: "vale",
         titulo: "Vale a pena analisar",
         descricao:
-          `${leilaoProximo.texto}. Excelente potencial pelos dados disponÃ­veis. Verifique o edital, matrÃ­cula e custos antes de arrematar.`,
+          `${leilaoProximo.texto}. Excelente potencial pelos dados disponíveis. Verifique o edital, matrícula e custos antes de arrematar.`,
         Icone: CircleCheck
       };
     }
@@ -580,7 +762,7 @@ if (proximaDataLeilao) {
         classe: "boa",
         titulo: "Boa oportunidade para analisar",
         descricao:
-          `${leilaoProximo.texto}. O imÃ³vel apresenta bom potencial, mas Ã© importante verificar o edital, matrÃ­cula e custos antes de arrematar.`,
+          `${leilaoProximo.texto}. O imóvel apresenta bom potencial, mas é importante verificar o edital, matrícula e custos antes de arrematar.`,
         Icone: AlertTriangle
       };
     }
@@ -595,7 +777,7 @@ if (score.valor >= 80) {
     classe: "excelente",
     titulo: "Excelente oportunidade",
     descricao:
-      "Excelente potencial pelos dados disponÃ­veis, mas ainda Ã© necessÃ¡rio confirmar as informaÃ§Ãµes do imÃ³vel, edital e custos antes de arrematar.",
+      "Excelente potencial pelos dados disponíveis, mas ainda é necessário confirmar as informações do imóvel, edital e custos antes de arrematar.",
     Icone: CircleCheck
   };
 }
@@ -610,20 +792,20 @@ if (score.valor >= 65) {
     classe: "boa",
     titulo: "Boa oportunidade",
     descricao:
-      "Bom potencial pelos dados disponÃ­veis, mas Ã© necessÃ¡rio confirmar as informaÃ§Ãµes do imÃ³vel, edital e custos antes de arrematar.",
+      "Bom potencial pelos dados disponíveis, mas é necessário confirmar as informações do imóvel, edital e custos antes de arrematar.",
     Icone: AlertTriangle
   };
 }
 
 
-    // OPORTUNIDADE MÃ‰DIA
+    // OPORTUNIDADE MÉDIA
     // =====================================================
 
     return {
       classe: "atencao",
-      titulo: "AtenÃ§Ã£o",
+      titulo: "Atenção",
       descricao:
-        "O imÃ³vel apresenta potencial, mas Ã© necessÃ¡rio analisar os detalhes antes de arrematar.",
+        "O imóvel apresenta potencial, mas é necessário analisar os detalhes antes de arrematar.",
       Icone: AlertTriangle
     };
   }
@@ -636,24 +818,19 @@ if (score.valor >= 65) {
     const datas = [
       imovel?.data_primeiro_leilao,
       imovel?.data_segundo_leilao,
+      imovel?.data_licitacao_aberta,
     ]
-      .filter(Boolean)
-      .map((data) => {
-        const dataLeilao = new Date(`${data}T00:00:00`);
-        return Number.isNaN(dataLeilao.getTime())
-          ? null
-          : dataLeilao;
-      })
+      .map(dataCivil)
       .filter(Boolean)
       .sort((a, b) => a - b);
 
     const dataFutura = datas.find((data) => data >= hoje);
 
-    // SEM LEILÃƒO FUTURO
+    // SEM LEILÃO FUTURO
     if (!dataFutura) {
       return {
         nivel: "fora",
-        label: "LEILÃ•ES ENCERRADOS",
+        label: "LEILÕES ENCERRADOS",
         classe: "prioridade-fora",
       };
     }
@@ -711,25 +888,20 @@ if (score.valor >= 65) {
   if (fotos.length === 0) {
     alertas.push({
       tipo: "info",
-      texto: "Sem fotos disponÃ­veis",
+      texto: "Sem fotos disponíveis",
     });
   }
 
-  // DATAS DOS LEILÃ•ES
+  // DATAS DOS LEILÕES
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
 
   const datas = [
     imovel?.data_primeiro_leilao,
     imovel?.data_segundo_leilao,
+    imovel?.data_licitacao_aberta,
   ]
-    .filter(Boolean)
-    .map((data) => {
-      const dataLeilao = new Date(`${data}T00:00:00`);
-      return Number.isNaN(dataLeilao.getTime())
-        ? null
-        : dataLeilao;
-    })
+    .map(dataCivil)
     .filter(Boolean)
     .sort((a, b) => a - b);
 
@@ -744,31 +916,31 @@ if (score.valor >= 65) {
     if (dias === 0) {
       alertas.push({
         tipo: "danger",
-        texto: "LeilÃ£o acontece hoje",
+        texto: "Leilão acontece hoje",
       });
     } else if (dias <= 30) {
       alertas.push({
         tipo: "warning",
-        texto: `PrÃ³ximo leilÃ£o em ${dias} dias`,
+        texto: `Próximo leilão em ${dias} dias`,
       });
     } else if (dias <= 90) {
       alertas.push({
         tipo: "info",
-        texto: `PrÃ³ximo leilÃ£o em ${dias} dias`,
+        texto: `Próximo leilão em ${dias} dias`,
       });
     }
   } else if (datas.length > 0) {
     alertas.push({
       tipo: "danger",
-      texto: "Todos os leilÃµes jÃ¡ realizados",
+      texto: "Todos os leilões já realizados",
     });
   }
 
-  // ÃREA
+  // ÁREA
   if (!(Number(imovel?.area) > 0)) {
     alertas.push({
       tipo: "warning",
-      texto: "Ãrea nÃ£o informada",
+      texto: "Área não informada",
     });
   }
 
@@ -779,24 +951,31 @@ if (score.valor >= 65) {
   ) {
     alertas.push({
       tipo: "warning",
-      texto: "Valores do imÃ³vel incompletos",
+      texto: "Valores do imóvel incompletos",
     });
   }
 
-  // LOCALIZAÃ‡ÃƒO
+  // LOCALIZAÇÃO
   if (!imovel?.cidade || !imovel?.estado) {
     alertas.push({
       tipo: "warning",
-      texto: "LocalizaÃ§Ã£o incompleta",
+      texto: "Localização incompleta",
     });
   }
 
   return alertas;
 }
 
-function detalhesDoScore(imovel) {
-  const score = calcularScoreOportunidade(imovel);
-  const analise = analiseFinanceira(imovel);
+function detalhesDoScore(imovel, custosPersonalizados = {}, cenarioSelecionado = null) {
+  const score = calcularScoreOportunidade(
+  imovel,
+  custosPersonalizados,
+  cenarioSelecionado
+);
+
+const analise = cenarioSelecionado
+  ? analiseDoCenario(imovel, cenarioSelecionado)
+  : analiseFinanceira(imovel, custosPersonalizados);
 
   const financiamento = imovel?.aceita_financiamento;
 
@@ -806,20 +985,20 @@ function detalhesDoScore(imovel) {
     condicoesCompra: [
       imovel?.ocupado !== undefined &&
         imovel?.ocupado !== null && {
-          nome: "OcupaÃ§Ã£o",
+          nome: "Ocupação",
           valor: imovel.ocupado ? "Ocupado" : "Desocupado",
         },
 
       imovel?.aceita_fgts !== undefined &&
         imovel?.aceita_fgts !== null && {
           nome: "FGTS",
-          valor: imovel.aceita_fgts ? "Aceita" : "NÃ£o aceita",
+          valor: imovel.aceita_fgts ? "Aceita" : "Não aceita",
         },
 
       financiamento !== undefined &&
         financiamento !== null && {
           nome: "Financiamento",
-          valor: financiamento ? "Aceita" : "NÃ£o aceita",
+          valor: financiamento ? "Aceita" : "Não aceita",
         },
     ].filter(Boolean),
   };
@@ -831,19 +1010,32 @@ function detalhesDoScore(imovel) {
   // =========================================================
 
   function fotosDoImovel(imovel) {
+    if (!imovel) return [];
+
+    const fontes = [];
+
+    // A galeria persistida normalmente chega em "imagens".
     if (Array.isArray(imovel.imagens)) {
-      return imovel.imagens.filter(Boolean);
+      fontes.push(...imovel.imagens.flat(Infinity));
+    }
+
+    // Alguns endpoints expõem a mesma galeria como "fotos".
+    if (Array.isArray(imovel.fotos)) {
+      fontes.push(...imovel.fotos.flat(Infinity));
     }
 
     if (Array.isArray(imovel.imagem)) {
-      return imovel.imagem.filter(Boolean);
+      fontes.push(...imovel.imagem.flat(Infinity));
+    } else if (typeof imovel.imagem === "string") {
+      fontes.push(imovel.imagem);
     }
 
-    if (imovel.imagem) {
-      return [imovel.imagem];
-    }
-
-    return [];
+    return [...new Set(
+      fontes
+        .filter((foto) => typeof foto === "string")
+        .map((foto) => foto.trim())
+        .filter((foto) => /^https?:\/\//i.test(foto))
+    )];
   }
 
   function abrirGaleria(imovel) {
@@ -853,36 +1045,36 @@ function detalhesDoScore(imovel) {
       return;
     }
 
-    setFotoAtiva(0);
     setGaleriaAberta(imovel);
+    setFotoAtiva(0);
   }
 
   function fotoAnterior() {
-  if (!galeriaAberta) return;
+    if (!galeriaAberta) return;
 
-  const fotos = fotosDoImovel(galeriaAberta);
+    const fotos = fotosDoImovel(galeriaAberta);
 
-  if (fotos.length <= 1) return;
+    if (fotos.length <= 1) return;
 
-  setFotoAtiva((atual) =>
-    atual === 0 ? fotos.length - 1 : atual - 1
-  );
-}
+    setFotoAtiva((atual) =>
+      atual === 0 ? fotos.length - 1 : atual - 1
+    );
+  }
 
-function proximaFoto() {
-  if (!galeriaAberta) return;
+  function proximaFoto() {
+    if (!galeriaAberta) return;
 
-  const fotos = fotosDoImovel(galeriaAberta);
+    const fotos = fotosDoImovel(galeriaAberta);
 
-  if (fotos.length <= 1) return;
+    if (fotos.length <= 1) return;
 
-  setFotoAtiva((atual) =>
-    atual === fotos.length - 1 ? 0 : atual + 1
-  );
-}
+    setFotoAtiva((atual) =>
+      atual === fotos.length - 1 ? 0 : atual + 1
+    );
+  }
 
   // =========================================================
-  // PAGINA??O
+  // PAGINAÇÃO
   // =========================================================
 
   function mudarPagina(novaPagina) {
@@ -936,6 +1128,8 @@ function proximaFoto() {
   // =========================================================
 
   async function carregarImoveis() {
+    const idRequisicao = ++requisicaoImoveisAtual.current;
+
     try {
       setLoading(true);
       setErro("");
@@ -947,7 +1141,7 @@ function proximaFoto() {
 
       params.append(
         "modalidade",
-        "LeilÃ£o SFI - Edital Ãšnico"
+        "Leilão SFI - Edital Único"
       );
 
       if (busca.trim()) {
@@ -1023,11 +1217,6 @@ function proximaFoto() {
         params.append("direcao", "desc");
       }
 
-      if (ordenacao === "score") {
-        params.append("ordenar", "score");
-        params.append("direcao", "desc");
-      }
-
       if (ordenacao === "mais-recentes") {
         params.append("ordenar", "data");
         params.append("direcao", "asc");
@@ -1044,27 +1233,44 @@ function proximaFoto() {
       console.log("BUSCANDO:", url);
 
       const resposta = await fetch(url);
+      const corpoResposta = await resposta.text();
+      let dados;
 
-      if (!resposta.ok) {
+      try {
+        dados = JSON.parse(corpoResposta);
+      } catch {
         throw new Error(
-          `Erro HTTP ${resposta.status}`
+          `A API devolveu uma resposta que não é JSON (HTTP ${resposta.status}). ` +
+            corpoResposta.slice(0, 300)
         );
       }
 
-      const dados = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(
+          dados.detail || `Erro HTTP ${resposta.status}`
+        );
+      }
 
       console.log(
         "RESPOSTA DA API:",
         dados
       );
 
-      const listaImoveis = Array.isArray(dados.itens)
-        ? dados.itens
-        : Array.isArray(dados.items)
-          ? dados.items
-          : [];
+      const listaImoveis = Array.isArray(dados.items)
+        ? dados.items
+        : Array.isArray(dados.itens)
+          ? dados.itens
+          : null;
 
-      console.log("IMÃ“VEIS PARA RENDERIZAR:", listaImoveis.length);
+      if (!listaImoveis || !Number.isFinite(Number(dados.total))) {
+        throw new Error(
+          "Formato inesperado na resposta da API de imóveis: esperados items/itens e total."
+        );
+      }
+
+      if (idRequisicao !== requisicaoImoveisAtual.current) return;
+
+      console.log("IMÓVEIS PARA RENDERIZAR:", listaImoveis.length);
 
       setImoveis(listaImoveis);
 
@@ -1075,22 +1281,24 @@ function proximaFoto() {
       setPaginas(
         Math.max(
           1,
-          Number(dados.paginas_totais ?? dados.paginas ?? 1)
+      Number(dados.paginas_totais ?? dados.paginas ?? 1)
         )
       );
     } catch (error) {
+      if (idRequisicao !== requisicaoImoveisAtual.current) return;
+
       console.error(
-        "ERRO AO CARREGAR IM?VEIS:",
+        "ERRO AO CARREGAR IMÓVEIS:",
         error
       );
 
       setErro(
-        "NÃ£o foi possÃ­vel carregar os imÃ³veis."
+        `Não foi possível carregar os imóveis: ${error.message || String(error)}`
       );
-
-      setImoveis([]);
     } finally {
-      setLoading(false);
+      if (idRequisicao === requisicaoImoveisAtual.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -1153,60 +1361,41 @@ function proximaFoto() {
   }
 
   // =========================================================
-  // ORDENA??O
+  // LISTA EXIBIDA
+  // Mantém a lista normal e filtra apenas quando Favoritos estiver ativo.
   // =========================================================
 
-  function calcularEconomiaPorM2(imovel) {
-    const economia = calcularEconomia(imovel);
-    const area = Number(imovel?.area);
-
-    if (!Number.isFinite(area) || area <= 0) {
-      return null;
-    }
-
-    return economia / area;
-  }
-
-  function dataMaisRecente(imovel) {
-    const data =
-      imovel?.data_segundo_leilao ||
-      imovel?.data_primeiro_leilao;
-
-    if (!data) {
-      return null;
-    }
-
-    const timestamp = new Date(data).getTime();
-
-    return Number.isFinite(timestamp) ? timestamp : null;
-  }
-
-  function compararNumeros(a, b, direcao = "desc") {
-    const primeiro = Number(a);
-    const segundo = Number(b);
-    const primeiroValido = Number.isFinite(primeiro);
-    const segundoValido = Number.isFinite(segundo);
-
-    if (!primeiroValido && !segundoValido) return 0;
-    if (!primeiroValido) return 1;
-    if (!segundoValido) return -1;
-
-    return direcao === "asc"
-      ? primeiro - segundo
-      : segundo - primeiro;
-  }
-
-  const imoveisOrdenados = imoveis;
-
-  const imoveisExibidos =
-    mostrarFavoritos
-      ? imoveisOrdenados.filter(
-        (imovel) =>
-          favoritos.some(
-            (id) => String(id) === String(imovel.id)
-          )
+  const listaRenderizadaRadar = mostrarFavoritos
+    ? imoveis.filter((imovel) =>
+        favoritos.some((id) => String(id) === String(imovel.id))
       )
-    : imoveisOrdenados;
+    : imoveis;
+
+  function alternarComparacao(imovel) {
+    setImoveisComparacao((atuais) => {
+      const id = String(imovel.id);
+      return atuais.some((item) => String(item.id) === id)
+        ? atuais.filter((item) => String(item.id) !== id)
+        : [...atuais, imovel];
+    });
+  }
+
+  function dadosComparacao(imovel) {
+    const cenario = cenariosSelecionados[imovel.id] || null;
+    const analise = cenario
+      ? analiseDoCenario(imovel, cenario)
+      : analiseFinanceira(imovel, custosArremate[imovel.id] || {});
+    const score = calcularScoreOportunidade(imovel, custosArremate[imovel.id] || {}, cenario);
+    const faltantes = cenario
+      ? (cenario.custos_nao_informados || [])
+      : [
+          ["comissao_leiloeiro", "comissao", "Comissão do leiloeiro"], ["itbi", "itbi", "ITBI"],
+          ["registro", "registro", "Registro"], ["outros_custos", "outrosCustos", "Outros custos"],
+          ["custo_venda", "custoVenda", "Custos de venda"], ["custo_reforma", "custoReforma", "Reforma"],
+        ].filter(([campo, personalizado]) => imovel[campo] == null && custosArremate[imovel.id]?.[personalizado] == null)
+         .map(([, , rotulo]) => rotulo);
+    return { analise, score, faltantes, cenario };
+  }
 
   // =========================================================
   // FAVORITOS
@@ -1238,22 +1427,37 @@ function proximaFoto() {
   // JSX
   // =========================================================
 
+  const custosDetalhes =
+    imovelDetalhes
+      ? custosArremate[imovelDetalhes.id] || {}
+      : {};
+  const cenarioDetalhes = imovelDetalhes
+    ? cenariosSelecionados[imovelDetalhes.id] || null
+    : null;
+
   const scoreDetalhes = imovelDetalhes
-    ? detalhesDoScore(imovelDetalhes)
+    ? detalhesDoScore(
+        imovelDetalhes,
+        custosDetalhes,
+        cenarioDetalhes
+      )
     : null;
-  const oportunidadeDetalhes = imovelDetalhes
-    ? calcularScoreOportunidade(imovelDetalhes)
-    : null;
+
+  const oportunidadeDetalhes = scoreDetalhes;
+
   const decisaoDetalhes = imovelDetalhes
-    ? decisaoDaOportunidade(imovelDetalhes)
+    ? decisaoDaOportunidade(
+        imovelDetalhes,
+        custosDetalhes,
+        cenarioDetalhes
+      )
     : null;
   const IconeDecisao = decisaoDetalhes?.Icone || AlertTriangle;
 
   const analiseDetalhes = imovelDetalhes
-    ? analiseFinanceira(
-        imovelDetalhes,
-        custosArremate[imovelDetalhes.id] || {}
-      )
+    ? cenarioDetalhes
+      ? analiseDoCenario(imovelDetalhes, cenarioDetalhes)
+      : analiseFinanceira(imovelDetalhes, custosArremate[imovelDetalhes.id] || {})
     : null;
 
   function valorInputFinanceiro(valor) {
@@ -1278,74 +1482,311 @@ function proximaFoto() {
     }));
   }
 
+  const imovelDetalhesId = imovelDetalhes?.id;
+  const atualizarCenarioSelecionado = useCallback((cenario) => {
+    if (imovelDetalhesId == null) return;
+    setCenariosSelecionados((atuais) => {
+      const idAtual = atuais[imovelDetalhesId]?.id ?? null;
+      const idNovo = cenario?.id ?? null;
+      if (String(idAtual) === String(idNovo)) return atuais;
+      return { ...atuais, [imovelDetalhesId]: cenario };
+    });
+  }, [imovelDetalhesId]);
+
   async function abrirDetalhes(imovel) {
-    // Exibe os dados jÃ¡ disponÃ­veis imediatamente e, em seguida, busca o
-    // detalhe completo. Para imÃ³veis Caixa, essa rota coleta fotos e datas.
+    // A foto do card já foi carregada no frontend. Ao abrir os detalhes,
+    // começamos por ela e, se a URL falhar, avançamos automaticamente
+    // para a próxima foto já coletada, sem recriar/substituir a galeria.
+    setFotoDetalhesAtiva(0);
+
+    // Mostra imediatamente os dados já carregados na lista.
+    // As fotos da Caixa já estão persistidas/coletadas e não podem ser
+    // substituídas por URLs diferentes vindas da resposta de detalhes.
+    const fotosOriginais = fotosDoImovel(imovel);
     setImovelDetalhes(imovel);
 
     try {
       const resposta = await fetch(`${API_URL}/imoveis/${imovel.id}`);
 
       if (!resposta.ok) {
-        throw new Error(`NÃ£o foi possÃ­vel carregar os detalhes (${resposta.status}).`);
+        throw new Error(`Não foi possível carregar os detalhes (${resposta.status}).`);
       }
 
       const detalhes = await resposta.json();
-      setImovelDetalhes(detalhes);
+      const fotosDetalhes = fotosDoImovel(detalhes);
 
-      // MantÃ©m a lista em memÃ³ria alinhada ao imÃ³vel enriquecido, evitando
-      // nova consulta Ã  Caixa caso o modal seja aberto novamente.
+      // A foto que já funciona no card fica SEMPRE em primeiro lugar.
+      // As fotos retornadas pelo detalhe são apenas acrescentadas à galeria.
+      const fotosFinais = [...new Set([
+        ...fotosOriginais,
+        ...fotosDetalhes,
+      ])];
+
+      const detalhesFinais = {
+        ...imovel,
+        ...detalhes,
+        imagens: fotosFinais,
+        imagem: fotosFinais[0] || detalhes.imagem || imovel.imagem || null,
+      };
+
+      setImovelDetalhes(detalhesFinais);
+
+      // Atualiza somente os dados do imóvel. A galeria existente no frontend
+      // é preservada e não é recriada nem substituída.
       setImoveis((atuais) =>
-        atuais.map((item) => (item.id === detalhes.id ? { ...item, ...detalhes } : item))
+        atuais.map((item) => {
+          if (item.id !== detalhesFinais.id) return item;
+
+          const fotosItem = fotosDoImovel(item);
+          const fotosMescladas = [...new Set([
+            ...fotosItem,
+            ...fotosFinais,
+          ])];
+
+          return {
+            ...item,
+            ...detalhesFinais,
+            imagens: fotosMescladas,
+            imagem: fotosMescladas[0] || item.imagem || null,
+          };
+        })
       );
     } catch (erro) {
-      console.error("Erro ao carregar detalhes do imÃ³vel:", erro);
+      console.error("Erro ao carregar detalhes do imóvel:", erro);
+      // Se a rota de detalhes falhar, o modal continua usando exatamente
+      // o imóvel que já estava carregado no frontend.
+      setImovelDetalhes(imovel);
     }
   }
 
+  if (verificandoAutenticacao) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h1>Radar Leilão</h1>
+          <p>Verificando sessão...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!token || !usuario) {
+    return (
+      <Login
+        onLogin={(novoToken) => {
+          setToken(novoToken);
+          setVerificandoAutenticacao(true);
+        }}
+      />
+    );
+  }
+
+  if (window.location.pathname === "/admin") {
+    if (!ehAdministrador) {
+      return (
+        <div className="login-page">
+          <div className="login-card">
+            <h1>Radar Leilão</h1>
+            <p>Acesso permitido apenas para administradores.</p>
+
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/";
+              }}
+            >
+              Voltar
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return <Admin usuario={usuario} onLogout={sair} />;
+  }
+
   return (
-    <div className="app">
+    <div 
+            
+    className="app">
 
-      {/* HEADER */}
-      <header className="header">
-        <div className="container header-content">
+            {/* HEADER */}
+        <header className="header">
+          <div className="container header-content">
 
-          <div className="logo">
+            <div className="logo">
+              <div className="logo-icon">
+                <Gavel size={24} />
+              </div>
 
-            <div className="logo-icon">
-              <Gavel size={24} />
+              <div>
+                <h1>Radar Leilão</h1>
+                <span>
+                  Encontre oportunidades
+                </span>
+              </div>
             </div>
 
-            <div>
-              <h1>Radar leilÃ£o</h1>
-              <span>
-                Encontre oportunidades
+            <div className="header-account">
+              <span className="user-role-badge">
+                {ROTULOS_PAPEL[papel] || "Papel não configurado"}
+              </span>
+              {papel === "cliente" && (
+                <nav className="cliente-navigation" aria-label="Navegação do cliente">
+                  <a href="#meu-perfil">Meu perfil</a>
+                  <a href="#minhas-oportunidades">Minhas oportunidades</a>
+                  <a href="#alertas">Alertas</a>
+                  <a href="#consultoria">Dúvidas sobre leilão</a>
+                </nav>
+              )}
+              {papel === "corretor" && (
+                <nav className="cliente-navigation" aria-label="Navegação do corretor">
+                  <a href="#painel-corretor">Minhas oportunidades</a>
+                  <a href="#perfil-corretor">Meu perfil</a>
+                  <a href="#alertas">Alertas</a>
+                  <a href="#consultoria">Dúvidas sobre leilão</a>
+                </nav>
+              )}
+              {ehAdministrador && (
+                <a className="header-admin-link" href="/admin">
+                  Administração
+                </a>
+              )}
+              <button type="button" className="header-logout" onClick={sair}>
+                <LogOut size={16} />
+                Sair
+              </button>
+              <span className="header-status">
+                <span className="status-dot" />
+                Sistema online
               </span>
             </div>
 
           </div>
+        </header>
 
-          <div className="header-status">
-            <span className="status-dot" />
-            Sistema online
-          </div>
+        {(papel === "cliente" || papel === "corretor") && <Alertas token={token} />}
 
-        </div>
-      </header>
+        {papel === "cliente" && (
+          <>
+            <section id="meu-perfil" className="container cliente-profile-section">
+              <div className="cliente-profile-card">
+                <div className="cliente-profile-heading">
+                  <span className="section-kicker">MINHA CONTA</span>
+                  <h2>Meu perfil</h2>
+                </div>
+                <dl className="cliente-profile-details">
+                  <div>
+                    <dt>Nome</dt>
+                    <dd>{usuario.nome || "Não informado"}</dd>
+                  </div>
+                  <div>
+                    <dt>E-mail</dt>
+                    <dd>{usuario.email || "Não informado"}</dd>
+                  </div>
+                  <div>
+                    <dt>Tipo</dt>
+                    <dd>{ROTULOS_PAPEL[usuario.tipo] || usuario.tipo || "Não informado"}</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
 
-      {/* HERO */}
-      <section className="hero">
+            <div className="container">
+              <MinhasOportunidades
+                usuario={usuario}
+                token={token}
+                onAbrirImovel={async (imovelId) => {
+                  const imovelEncontrado = imoveis.find(
+                    (item) => String(item.id) === String(imovelId)
+                  );
+
+                  if (imovelEncontrado) {
+                    setImovelDetalhes(imovelEncontrado);
+                    return;
+                  }
+
+                  try {
+                    const resposta = await fetch(
+                      `${API_URL}/imoveis/${imovelId}`,
+                      {
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                        },
+                      }
+                    );
+
+                    if (!resposta.ok) {
+                      throw new Error("Não foi possível carregar o imóvel.");
+                    }
+
+                    const imovel = await resposta.json();
+
+                    setImovelDetalhes(imovel);
+                  } catch (error) {
+                    console.error("Erro ao abrir imóvel:", error);
+                  }
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        {papel === "corretor" && (
+          <>
+            <section id="perfil-corretor" className="container cliente-profile-section">
+              <div className="cliente-profile-card">
+                <div className="cliente-profile-heading">
+                  <span className="section-kicker">MINHA CONTA</span>
+                  <h2>Meu perfil</h2>
+                </div>
+                <dl className="cliente-profile-details">
+                  <div><dt>Nome</dt><dd>{usuario.nome || "Não informado"}</dd></div>
+                  <div><dt>E-mail</dt><dd>{usuario.email || "Não informado"}</dd></div>
+                  <div><dt>Tipo</dt><dd>Corretor</dd></div>
+                </dl>
+              </div>
+            </section>
+            <Corretor
+              usuario={usuario}
+              token={token}
+              onAbrirOportunidade={async (oportunidade) => {
+                setOportunidadeSelecionada(oportunidade);
+                const existente = imoveis.find(
+                  (item) => String(item.id) === String(oportunidade.imovel_id)
+                );
+                if (existente) {
+                  setImovelDetalhes(existente);
+                  return;
+                }
+                try {
+                  const resposta = await fetch(`${API_URL}/imoveis/${oportunidade.imovel_id}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!resposta.ok) throw new Error("Não foi possível carregar o imóvel.");
+                  setImovelDetalhes(await resposta.json());
+                } catch (error) {
+                  setOportunidadeSelecionada(null);
+                  console.error("Erro ao abrir oportunidade atribuída:", error);
+                }
+              }}
+            />
+          </>
+        )}
+
+        {/* HERO */}
+        <section className="hero">
         <div className="container">
 
           <div className="hero-text">
 
             <span className="hero-label">
               <Gavel size={16} />
-              OPORTUNIDADES EM LEILÃƒâ€¢ES
+              OPORTUNIDADES EM LEILÕES
             </span>
 
             <h2>
-              Encontre imÃ³veis abaixo
+              Encontre imóveis abaixo
               <br />
               <strong>
                 do valor de mercado.
@@ -1353,7 +1794,7 @@ function proximaFoto() {
             </h2>
 
             <p>
-              Pesquise imÃ³veis de leilÃ£o,
+              Pesquise imóveis de leilão,
               compare valores e encontre as
               melhores oportunidades.
             </p>
@@ -1372,7 +1813,7 @@ function proximaFoto() {
 
               <input
                 type="text"
-                placeholder="Digite cidade ou regiÃ£o..."
+                placeholder="Digite cidade ou região..."
                 value={busca}
                 onChange={(event) =>
                   setBusca(event.target.value)
@@ -1394,8 +1835,9 @@ function proximaFoto() {
         </div>
       </section>
 
-      {/* CONTEÃšDO */}
+      {/* CONTEÚDO */}
       <main className="container main">
+        <StatusCaixa usuario={usuario} />
 
         {/* BARRA */}
         <div className="toolbar">
@@ -1420,7 +1862,7 @@ function proximaFoto() {
               )}
             </button>
 
-            <button
+            {papel !== "corretor" && <button
               type="button"
               className={`favorites-toggle ${
                 mostrarFavoritos ? "active" : ""
@@ -1429,13 +1871,13 @@ function proximaFoto() {
               aria-pressed={mostrarFavoritos
               }
             >
-              â™¡ Favoritos ({favoritos.length})
-            </button>
+              ♡ Favoritos ({favoritos.length})
+            </button>}
 
             <span className="result-count">
               {loading
                 ? "Carregando..."
-                : `${total} imÃ³veis encontrados`}
+                : `${total} imóveis encontrados`}
             </span>
 
           </div>
@@ -1461,19 +1903,19 @@ function proximaFoto() {
               </option>
 
               <option value="menor-preco">
-                Menor preÃ§o
+                Menor preço
               </option>
 
               <option value="economia-m2">
-                Maior economia por mÂ²
+                Maior economia por m²
               </option>
 
               <option value="maior-area">
-                Maior Ã¡rea
+                Maior área
               </option>
 
               <option value="mais-recentes">
-                PrÃ³ximo leilÃ£o
+                Próximo leilão
               </option>
             </select>
 
@@ -1486,7 +1928,7 @@ function proximaFoto() {
           <div className="filters-panel">
 
             <div className="filter-group">
-              <label>Status do leilÃ£o</label>
+              <label>Status do leilão</label>
 
               <select
                 value={statusLeilao}
@@ -1495,10 +1937,10 @@ function proximaFoto() {
                   setPagina(1);
                 }}
               >
-                <option value="ativos">ðŸŸ¢ Ativos</option>
-                <option value="encerrados">ðŸ”´ Encerrados</option>
-                <option value="sem_data">âšª Sem data</option>
-                <option value="todos">ðŸ“‹ Todos</option>
+                <option value="ativos">🟢 Ativos</option>
+                <option value="encerrados">🔴 Encerrados</option>
+                <option value="sem_data">⚪ Sem data</option>
+                <option value="todos">📋 Todos</option>
               </select>
             </div>
 
@@ -1527,7 +1969,7 @@ function proximaFoto() {
             </option>
 
             <option value="AP">
-              AmapÃ¡
+              Amapá
             </option>
 
             <option value="AM">
@@ -1539,7 +1981,7 @@ function proximaFoto() {
             </option>
 
             <option value="CE">
-              CearÃ¡
+              Ceará
             </option>
 
             <option value="DF">
@@ -1547,15 +1989,15 @@ function proximaFoto() {
             </option>
 
             <option value="ES">
-              EspÃ­rito Santo
+              Espírito Santo
             </option>
 
             <option value="GO">
-              GoiÃ¡s
+              Goiás
             </option>
 
             <option value="MA">
-              MaranhÃ£o
+              Maranhão
             </option>
 
             <option value="MT">
@@ -1571,15 +2013,15 @@ function proximaFoto() {
             </option>
 
             <option value="PA">
-              ParÃ¡
+              Pará
             </option>
 
             <option value="PB">
-              ParaÃ­ba
+              Paraíba
             </option>
 
             <option value="PR">
-              ParanÃ¡
+              Paraná
             </option>
 
             <option value="PE">
@@ -1587,7 +2029,7 @@ function proximaFoto() {
             </option>
 
             <option value="PI">
-              PiauÃ­
+              Piauí
             </option>
 
             <option value="RJ">
@@ -1603,7 +2045,7 @@ function proximaFoto() {
             </option>
 
             <option value="RO">
-              RondÃ´nia
+              Rondônia
             </option>
 
             <option value="RR">
@@ -1615,7 +2057,7 @@ function proximaFoto() {
             </option>
 
             <option value="SP">
-              SÃ£o Paulo
+              São Paulo
             </option>
 
             <option value="SE">
@@ -1667,7 +2109,7 @@ function proximaFoto() {
             <div className="filter-group">
 
               <label>
-                Desconto mÃ­nimo (%)
+                Desconto mínimo (%)
               </label>
 
               <input
@@ -1687,7 +2129,7 @@ function proximaFoto() {
             <div className="filter-group">
 
               <label>
-                Valor mÃ¡ximo
+                Valor máximo
               </label>
 
               <input
@@ -1705,7 +2147,7 @@ function proximaFoto() {
             </div>
 
             <div className="filter-group">
-              <label>Ãrea mÃ­nima (mÂ²)</label>
+              <label>Área mínima (m²)</label>
 
               <input
                 type="number"
@@ -1719,7 +2161,7 @@ function proximaFoto() {
             </div>
 
             <div className="filter-group">
-              <label>Ãrea mÃ¡xima (mÂ²)</label>
+              <label>Área máxima (m²)</label>
 
               <input
                 type="number"
@@ -1822,13 +2264,13 @@ function proximaFoto() {
         {/* SEM RESULTADOS */}
         {!loading &&
           !erro &&
-          imoveisExibidos.length === 0 && (
+          listaRenderizadaRadar.length === 0 && (
             <div className="empty">
 
               <Building2 size={48} />
 
               <h3>
-                Nenhum imÃ³vel encontrado
+                Nenhum imóvel encontrado
               </h3>
 
               <p>
@@ -1841,124 +2283,56 @@ function proximaFoto() {
 
         {/* GRID */}
         {!loading &&
-          imoveisExibidos.length > 0 && (
+          listaRenderizadaRadar.length > 0 && (
+
+            <>
+            {imoveisComparacao.length > 0 && (
+              <section className="comparison-panel" aria-labelledby="comparison-title">
+                <header className="comparison-header">
+                  <div><span className="fluxo-kicker">ANÁLISE LADO A LADO</span><h3 id="comparison-title">Comparação de oportunidades</h3><p>Os valores usam o cenário salvo selecionado em cada imóvel quando disponível.</p></div>
+                  <button type="button" onClick={() => setImoveisComparacao([])}>Limpar seleção</button>
+                </header>
+                <div className="comparison-scroll">
+                  <table className="comparison-table">
+                    <thead><tr><th scope="col">Indicador</th>{imoveisComparacao.map((item) => <th scope="col" key={item.id}><strong>{item.titulo || "Imóvel"}</strong><span>{item.cidade || "Cidade não informada"}{item.estado ? ` · ${item.estado}` : ""}</span><button type="button" onClick={() => alternarComparacao(item)} aria-label={`Remover ${item.titulo || "imóvel"} da comparação`}>Remover</button></th>)}</tr></thead>
+                    <tbody>{[
+                      ["Preço de aquisição / leilão", (item, dados) => dinheiro(dados.cenario ? dados.cenario.preco_aquisicao : dados.analise.leilao)],
+                      ["Investimento total estimado", (item, dados) => dinheiro(dados.analise.custoInvestimento)],
+                      ["Revenda esperada", (item, dados) => dinheiro(dados.analise.valorRevenda)],
+                      ["Lucro estimado", (item, dados) => dinheiro(dados.analise.lucroRealEstimado)],
+                      ["ROI estimado", (item, dados) => dados.faltantes.length ? "Indisponível: custos pendentes" : Number.isFinite(dados.analise.retornoSobreInvestimento) ? `${dados.analise.retornoSobreInvestimento.toFixed(2).replace(".", ",")}%` : "Indisponível"],
+                      ["Margem sobre revenda", (item, dados) => dados.faltantes.length ? "Indisponível: custos pendentes" : Number.isFinite(dados.analise.margemSeguranca) ? `${dados.analise.margemSeguranca.toFixed(2).replace(".", ",")}%` : "Indisponível"],
+                      ["Desconto sobre avaliação", (item) => { const desconto = calcularDesconto(item); return desconto == null ? "Indisponível" : `${desconto.toFixed(2).replace(".", ",")}%`; }],
+                      ["Score existente", (item, dados) => `${dados.score.valor}/100 · ${dados.score.texto}`],
+                    ].map(([rotulo, valor]) => <tr key={rotulo}><th scope="row">{rotulo}</th>{imoveisComparacao.map((item) => { const dados = dadosComparacao(item); return <td key={item.id}>{valor(item, dados)}</td>; })}</tr>)}
+                      <tr><th scope="row">Custos ausentes / por confirmar</th>{imoveisComparacao.map((item) => { const { faltantes, cenario } = dadosComparacao(item); return <td key={item.id}>{faltantes.length ? <><strong className="comparison-unknown">A confirmar</strong><span>{faltantes.join(", ")}</span>{cenario && <small>O cenário pode assumir zero nos campos ausentes; valores não confirmados não são tratados como conhecidos.</small>}</> : <span>Sem custos pendentes identificados</span>}</td>; })}</tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="comparison-note">Na análise padrão, alguns custos usam estimativas predefinidas. Campos opcionais ausentes aparecem como pendentes; confirme-os antes de confiar no resultado.</p>
+              </section>
+            )}
 
             <div className="imoveis-grid">
 
-              {imoveisExibidos.map((imovel) => {
+              {listaRenderizadaRadar.map((imovel) => {
                 const fotos = Array.isArray(imovel.imagens)
                   ? imovel.imagens
                   : imovel.imagem
                     ? [imovel.imagem]
                     : [];
 
-                const economia =
-                  imovel.valor_avaliacao && imovel.valor_leilao
-                    ? imovel.valor_avaliacao - imovel.valor_leilao
-                    : 0;
-
-                const analise = analiseFinanceira(imovel);
-
-                const descontoCalculado = calcularDesconto(imovel);
-
-                const oportunidade = calcularScoreOportunidade(imovel);
+                const detalhesCard = detalhesDoScore(imovel);
+                const oportunidade = detalhesCard;
+                const economia = detalhesCard.economia;
+                const analise = detalhesCard.analise;
+                const descontoCalculado = detalhesCard.desconto;
                 const decisao = decisaoDaOportunidade(imovel);
                 const alertas = alertasDoImovel(imovel);
                 const prioridade = prioridadeDoImovel(imovel);
                 const IconeDecisao = decisao.Icone;
-                const economiaPorM2 =
-                  imovel.economia_m2 !== null && imovel.economia_m2 !== undefined
-                    ? Number(imovel.economia_m2)
-                    : null;
-                const pontosDesconto = descontoCalculado === null
-                  ? 0
-                  : Math.min(40, Math.round(descontoCalculado));
-                const pontosEconomia =
-                  economia > 0
-                    ? economia >= 100000
-                      ? 20
-                      : economia >= 50000
-                        ? 16
-                        : economia >= 30000
-                          ? 12
-                          : economia >= 15000
-                            ? 8
-                            : economia >= 5000
-                              ? 4
-                              : 0
-                    : 0;
-                const dadosCompletos = [
-                  descontoCalculado !== null,
-                  Number(imovel?.area) > 0,
-                  Boolean(imovel?.cidade && imovel?.estado),
-                  Boolean(
-                    imovel?.data_primeiro_leilao || imovel?.data_segundo_leilao
-                  ),
-                ];
-               const pontosDados =
-                (dadosCompletos[0] ? 4 : 0) +
-                (dadosCompletos[1] ? 4 : 0) +
-                (dadosCompletos[2] ? 4 : 0) +
-                (Boolean(imovel?.valor_avaliacao && imovel?.valor_leilao) ? 3 : 0);
-
-                const hojeCard = new Date();
-                hojeCard.setHours(0, 0, 0, 0);
-
-                const datasLeilaoCard = [
-                  imovel?.data_primeiro_leilao,
-                  imovel?.data_segundo_leilao,
-                ]
-                  .filter(Boolean)
-                  .map((data) => {
-                    const d = new Date(data);
-                    d.setHours(0, 0, 0, 0);
-                    return d;
-                  })
-                  .filter((data) => !Number.isNaN(data.getTime()))
-                  .sort((a, b) => a - b);
-
-                const datasFuturasCard = datasLeilaoCard.filter(
-                  (data) => data >= hojeCard
-                );
-
-                const proximaDataLeilaoCard =
-                  datasFuturasCard.length > 0 ? datasFuturasCard[0] : null;
-
-                const diasAteLeilaoCard = proximaDataLeilaoCard
-                  ? Math.ceil(
-                      (proximaDataLeilaoCard - hojeCard) /
-                        (1000 * 60 * 60 * 24)
-                    )
-                  : null;
-
-                let pontosDataCard = 0;
-
-                if (diasAteLeilaoCard !== null) {
-                  if (diasAteLeilaoCard <= 30) {
-                    pontosDataCard = 10;
-                  } else if (diasAteLeilaoCard <= 90) {
-                    pontosDataCard = 8;
-                  } else if (diasAteLeilaoCard <= 180) {
-                    pontosDataCard = 5;
-                  } else {
-                    pontosDataCard = 2;
-                  }
-                }
-
-                const condicoesCompra = [
-                  imovel?.ocupado !== undefined && imovel?.ocupado !== null && {
-                    nome: "OcupaÃ§Ã£o",
-                    valor: imovel.ocupado ? "Ocupado" : "Desocupado",
-                  },
-                  imovel?.aceita_fgts !== undefined && imovel?.aceita_fgts !== null && {
-                    nome: "FGTS",
-                    valor: imovel.aceita_fgts ? "Aceita" : "NÃ£o aceita",
-                  },
-        imovel?.aceita_financiamento !== undefined && imovel?.aceita_financiamento !== null && {
-            nome: "Financiamento",
-            valor: imovel?.aceita_financiamento ? "Aceita" : "NÃ£o aceita",
-        },
-                ].filter(Boolean);
+                const economiaPorM2 = detalhesCard.economiaPorM2;
+                const condicoesCompra = detalhesCard.condicoesCompra;
 
                 return (
                   <article
@@ -1970,7 +2344,7 @@ function proximaFoto() {
                     <div className="card-image">
 
                       {/* FAVORITO */}
-                      <button
+                      {papel !== "corretor" && <button
                         type="button"
                         className={`favorite-button ${
                           favoritos.some((id) => String(id) === String(imovel.id)) ? "favorited" : ""
@@ -1989,11 +2363,11 @@ function proximaFoto() {
                           size={20}
                           fill={favoritos.some((id) => String(id) === String(imovel.id)) ? "currentColor" : "none"}
                         />
-                      </button>
+                      </button>}
 
                       {/* BADGE */}
                       <div className="auction-badge">
-                        {"\u{1F528}"} LEILÃƒO SFI
+                        {"\u{1F528}"} LEILÃO SFI
                       </div>
 
                       {/* FOTO */}
@@ -2014,7 +2388,7 @@ function proximaFoto() {
                             src={fotos[0]}
                             alt={
                               imovel.titulo ||
-                              "ImÃ³vel"
+                              "Imóvel"
                             }
                             loading="lazy"
                             decoding="async"
@@ -2070,15 +2444,19 @@ function proximaFoto() {
                         <Home size={44} />
 
                         <span>
-                          ImÃ³vel de leilÃ£o
+                          Imóvel de leilão
                         </span>
 
                       </div>
 
                     </div>
 
-                    {/* CONTEÃšDO */}
+                    {/* CONTEÚDO */}
                     <div className="card-body">
+
+                      <button type="button" className={`compare-select ${imoveisComparacao.some((item) => String(item.id) === String(imovel.id)) ? "selected" : ""}`} onClick={() => alternarComparacao(imovel)} aria-pressed={imoveisComparacao.some((item) => String(item.id) === String(imovel.id))}>
+                        <Columns3 size={15} /> {imoveisComparacao.some((item) => String(item.id) === String(imovel.id)) ? "Selecionado para comparar" : "Comparar oportunidade"}
+                      </button>
 
                       {/* ALERTAS */}
                       {alertas.length > 0 && (
@@ -2089,30 +2467,30 @@ function proximaFoto() {
                               className={`card-alert ${alerta.tipo}`}
                             >
                               {alerta.tipo === "danger"
-                                ? "ðŸ”´"
+                                ? "🔴"
                                 : alerta.tipo === "warning"
-                                  ? "âš ï¸"
-                                  : "â„¹ï¸"}{" "}
+                                  ? "⚠️"
+                                  : "ℹ️"}{" "}
                               {alerta.texto}
                             </span>
                           ))}
                         </div>
                       )}
 
-                      {/* T?TULO */}
+                      {/* TÍTULO */}
                       <h3 className="card-title">
                         {imovel.titulo ||
-                          "ImÃ³vel"}
+                          "Imóvel"}
                       </h3>
 
-                      {/* LOCALIZA??O */}
+                      {/* LOCALIZAÇÃO */}
                       <div className="location">
 
                         <MapPin size={16} />
 
                         <span>
                           {imovel.cidade ||
-                            "Cidade nÃ£o informada"}
+                            "Cidade não informada"}
 
                           {imovel.estado
                             ? ` - ${imovel.estado}`
@@ -2127,11 +2505,11 @@ function proximaFoto() {
                         <Tag size={15} />
 
                         {imovel.tipo ||
-                          "Tipo nÃ£o informado"}
+                          "Tipo não informado"}
 
                       </div>
 
-                      {/* CARACTERÃSTICAS */}
+                      {/* CARACTERÍSTICAS */}
                       {(imovel.area_util ||
                         imovel.quartos ||
                         imovel.banheiros ||
@@ -2141,7 +2519,7 @@ function proximaFoto() {
                           {imovel.area_util && (
                             <span>
                               <Ruler size={16} />
-                              {imovel.area_util} mÂ²
+                              {imovel.area_util} m²
                             </span>
                           )}
 
@@ -2173,7 +2551,7 @@ function proximaFoto() {
                       {descontoCalculado !== null &&
                         descontoCalculado > 0 && (
                           <div className="discount-info">
-                            ðŸ’° DESCONTO{" "}
+                            💰 DESCONTO{" "}
                             <strong>
                               {descontoCalculado
                                 .toFixed(2)
@@ -2185,11 +2563,11 @@ function proximaFoto() {
 
                       {/* PRIORIDADE */}
                     <div className={`prioridade-badge ${prioridade.classe}`}>
-                      {prioridade.nivel === "p1" && "ðŸ”¥"}
-                      {prioridade.nivel === "p2" && "âš¡"}
-                      {prioridade.nivel === "p3" && "ðŸ”Ž"}
-                      {prioridade.nivel === "p4" && "ðŸ‘ï¸"}
-                      {prioridade.nivel === "fora" && "â¸ï¸"}
+                      {prioridade.nivel === "p1" && "🔥"}
+                      {prioridade.nivel === "p2" && "⚡"}
+                      {prioridade.nivel === "p3" && "🔎"}
+                      {prioridade.nivel === "p4" && "👁️"}
+                      {prioridade.nivel === "fora" && "?"}
                       {" "}
                       {prioridade.label}
                     </div>
@@ -2219,47 +2597,48 @@ function proximaFoto() {
                         <details className="score-explanation">
                           <summary>
                             <Info size={14} aria-hidden="true" />
-                            Ver composiÃ§Ã£o do score
+                            Ver composição do score
                           </summary>
 
                           <div className="score-factors">
                             <div className="score-factor">
                               <span>Desconto</span>
                               <strong>
-                                {descontoCalculado === null
-                                  ? "NÃ£o informado"
-                                  : `${descontoCalculado.toFixed(2).replace(".", ",")}%`}
+                                {oportunidade.desconto === null
+                                  ? "Não informado"
+                                  : `${oportunidade.desconto.toFixed(2).replace(".", ",")}%`}
                               </strong>
-                              <small>{pontosDesconto}/40 pontos</small>
+                              <small>{oportunidade.pontosDesconto}/30 pontos</small>
                             </div>
                             <div className="score-factor">
                               <span>Economia total</span>
-                              <strong>{economia > 0 ? dinheiro(economia) : "NÃ£o informado"}</strong>
-                              <small>{pontosEconomia}/20 pontos</small>
+                              <strong>{economia > 0 ? dinheiro(economia) : "Não informado"}</strong>
+                              <small>{oportunidade.pontosEconomia}/15 pontos</small>
                             </div>
                             <div className="score-factor">
-                              <span>Economia por mÂ²</span>
+                              <span>Economia por m²</span>
                               <strong>
                                 {economiaPorM2 !== null
-                                  ? `${dinheiro(economiaPorM2)}/mÂ²`
-                                  : "NÃ£o informado"}
+                                  ? `${dinheiro(economiaPorM2)}/m²`
+                                  : "Não informado"}
                               </strong>
-                              <small>Indicador complementar</small>
+                              <small>{oportunidade.pontosEconomiaM2}/10 pontos</small>
                             </div>
                             <div className="score-factor">
-
-                              <div className="score-factor">
-                                <span>Data do leilÃ£o</span>
-                                <strong>
-                                {proximaDataLeilaoCard
-                                  ? `${diasAteLeilaoCard} dias`
-                                  : "Todos realizados"}
-                                </strong>
-                                <small>{pontosDataCard}/10 pontos</small>
-                              </div>
-                              <span>Completude dos dados</span>
-                              <strong>{dadosCompletos.filter(Boolean).length}/4 itens</strong>
-                              <small>{pontosDados}/15 pontos</small>
+                              <span>Dados essenciais</span>
+                              <strong>{oportunidade.dadosCompletos.filter(Boolean).length}/4 itens</strong>
+                              <small>{oportunidade.pontosDados}/15 pontos</small>
+                            </div>
+                            <div className="score-factor">
+                              <span>Data do leilão</span>
+                              <strong>
+                                {oportunidade.leilaoJaRealizado
+                                  ? "Leilões já realizados"
+                                  : oportunidade.diasAteLeilao !== null
+                                    ? `${oportunidade.diasAteLeilao} dias`
+                                    : "Não informado"}
+                              </strong>
+                              <small>{oportunidade.pontosData}/10 pontos</small>
                             </div>
                           </div>
 
@@ -2277,11 +2656,11 @@ function proximaFoto() {
 
                       <div
                         className={`decision-indicator ${decisao.classe}`}
-                        aria-label={`DecisÃ£o da oportunidade: ${decisao.titulo}`}
+                        aria-label={`Decisão da oportunidade: ${decisao.titulo}`}
                       >
                         <IconeDecisao size={18} aria-hidden="true" />
                         <div>
-                          <span>DecisÃ£o da oportunidade</span>
+                          <span>Decisão da oportunidade</span>
                           <strong>{decisao.titulo}</strong>
                           <small>{decisao.descricao}</small>
                         </div>
@@ -2292,7 +2671,7 @@ function proximaFoto() {
 
                         <div className="economy">
 
-                          VocÃª economiza{" "}
+                          Você economiza{" "}
 
                           <strong>
                             {dinheiro(
@@ -2309,29 +2688,29 @@ function proximaFoto() {
                         <div className="financial-analysis">
 
                           <div className="financial-row">
-                            <span>Valor/mÂ² avaliaÃ§Ã£o</span>
+                            <span>Valor/m² avaliação</span>
                             <strong>
                               {analise.valorM2Avaliacao
                                 ? dinheiro(analise.valorM2Avaliacao)
-                                : "NÃ£o informado"}
+                                : "Não informado"}
                             </strong>
                           </div>
 
                           <div className="financial-row">
-                            <span>Valor/mÂ² leilÃ£o</span>
+                            <span>Valor/m² leilão</span>
                             <strong>
                               {analise.valorM2Leilao
                                 ? dinheiro(analise.valorM2Leilao)
-                                : "NÃ£o informado"}
+                                : "Não informado"}
                             </strong>
                           </div>
                           {analise.valorM2Avaliacao && analise.valorM2Leilao && (
                             <div className="financial-saving">
-                              Economia por mÂ²{" "}
+                              Economia por m²{" "}
                               <strong>
                                 {imovel.economia_m2 !== null && imovel.economia_m2 !== undefined
-                                  ? `${dinheiro(imovel.economia_m2)}/mÂ²`
-                                  : "NÃ£o informado"}
+                                  ? `${dinheiro(imovel.economia_m2)}/m²`
+                                  : "Não informado"}
                               </strong>
                             </div>
                           )}
@@ -2339,7 +2718,7 @@ function proximaFoto() {
                         </div>
                       )}
 
-                      {/* ENDERE?O */}
+                      {/* ENDEREÇO */}
                       {imovel.endereco && (
 
                         <div className="address">
@@ -2354,7 +2733,7 @@ function proximaFoto() {
 
                       )}
 
-                      {/* BOT?O */}
+                      {/* BOTÃO */}
                       <button
                         type="button"
                         className="view-button"
@@ -2373,10 +2752,10 @@ function proximaFoto() {
               )}
 
             </div>
-
+            </>
           )}
 
-        {/* PAGINA??O */}
+        {/* PAGINAÇÃO */}
         {!loading &&
           !erro &&
           paginas > 1 && (
@@ -2395,7 +2774,7 @@ function proximaFoto() {
                   pagina === 1
                 }
               >
-                â†
+                ←
               </button>
 
               {paginasVisiveis().map(
@@ -2442,7 +2821,7 @@ function proximaFoto() {
                   pagina === paginas
                 }
               >
-                â†’
+                →
               </button>
 
             </div>
@@ -2451,135 +2830,108 @@ function proximaFoto() {
 
       </main>
 
-      {/* GALERIA */}
-      {galeriaAberta && (
-
-        <div
-          className="gallery-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Fotos de ${galeriaAberta.titulo}`}
-          onClick={() =>
-            setGaleriaAberta(null)
-          }
-        >
-
-          <div
-            className="gallery-content"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
-          >
-
-            <button
-              type="button"
-              className="gallery-close"
-              onClick={() =>
-                setGaleriaAberta(null)
-              }
-              aria-label="Fechar galeria"
-            >
-              <X size={22} />
-            </button>
-
-            {fotosDoImovel(galeriaAberta).length > 1 && (
-            <>
-              <button
-                type="button"
-                className="gallery-nav gallery-prev"
-                onClick={fotoAnterior}
-                aria-label="Foto anterior"
-              >
-                â€¹
-              </button>
-
-              <button
-                type="button"
-                className="gallery-nav gallery-next"
-                onClick={proximaFoto}
-                aria-label="PrÃ³xima foto"
-              >
-                â€º
-              </button>
-            </>
-          )}
-
-            <img
-              src={
-                fotosDoImovel(
-                  galeriaAberta
-                )[fotoAtiva]
-              }
-              alt={
-                galeriaAberta.titulo
-              }
-            />
-
-            <div className="gallery-footer">
-
-              <strong>
-                {galeriaAberta.titulo}
-              </strong>
-
-              <span>
-                {fotoAtiva + 1} de{" "}
-                {
-                  fotosDoImovel(
-                    galeriaAberta
-                  ).length
-                }
-              </span>
-
-            </div>
-
-            {fotosDoImovel(
-              galeriaAberta
-            ).length > 1 && (
-
-                <div className="gallery-thumbnails">
-
-                  {fotosDoImovel(
-                    galeriaAberta
-                  ).map(
-                    (fotoUrl, indice) => (
-
-                      <button
-                        type="button"
-                        className={
-                          indice === fotoAtiva
-                            ? "active"
-                            : ""
-                        }
-                        key={`${fotoUrl}-${indice}`}
-                        onClick={() =>
-                          setFotoAtiva(
-                            indice
-                          )
-                        }
-                      >
-
-                        <img
-                          src={fotoUrl}
-                          alt={`Foto ${indice + 1
-                            }`}
-                        />
-
-                      </button>
-
-                    )
-                  )}
-
-                </div>
-
-              )}
-
-          </div>
-
-        </div>
-
+      {(papel === "cliente" || papel === "corretor") && (
+        <Consultoria token={token} />
       )}
 
-      {/* DETALHES DO IM?VEL */}
+      {/* GALERIA */}
+      {galeriaAberta && (() => {
+        const fotos = fotosDoImovel(galeriaAberta);
+
+        return (
+          <div
+            className="gallery-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Fotos de ${galeriaAberta.titulo || "imóvel"}`}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setGaleriaAberta(null);
+              }
+            }}
+          >
+            <div className="gallery-content">
+              <button
+                type="button"
+                className="gallery-close"
+                onClick={() => setGaleriaAberta(null)}
+                aria-label="Fechar galeria"
+              >
+                ×
+              </button>
+
+              {fotos.length > 0 && (
+                <>
+                  <div className="gallery-main">
+                    <img
+                      src={fotos[fotoAtiva] || fotos[0]}
+                      alt={`Foto ${fotoAtiva + 1} de ${fotos.length}`}
+                      onError={() => {
+                        setFotoAtiva((atual) => {
+                          if (fotos.length <= 1 || atual >= fotos.length - 1) return atual;
+                          return atual + 1;
+                        });
+                      }}
+                    />
+
+                    {fotos.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          className="gallery-nav gallery-prev"
+                          onClick={fotoAnterior}
+                          aria-label="Foto anterior"
+                        >
+                          ‹
+                        </button>
+
+                        <button
+                          type="button"
+                          className="gallery-nav gallery-next"
+                          onClick={proximaFoto}
+                          aria-label="Próxima foto"
+                        >
+                          ›
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="gallery-footer">
+                    <strong>{galeriaAberta.titulo || "Imóvel"}</strong>
+                    <span>{fotoAtiva + 1} de {fotos.length}</span>
+                  </div>
+
+                  {fotos.length > 1 && (
+                    <div
+                      className="gallery-thumbnails"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {fotos.map((fotoUrl, indice) => (
+                        <button
+                          type="button"
+                          className={indice === fotoAtiva ? "active" : ""}
+                          key={`${fotoUrl}-${indice}`}
+                          onClick={() => setFotoAtiva(indice)}
+                          aria-label={`Abrir foto ${indice + 1}`}
+                        >
+                          <img
+                            src={fotoUrl}
+                            alt={`Miniatura da foto ${indice + 1}`}
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* DETALHES DO IMÓVEL */}
       {imovelDetalhes && (
         <div
           className="details-modal"
@@ -2606,11 +2958,21 @@ function proximaFoto() {
                   type="button"
                   className="details-image-button"
                   onClick={() => abrirGaleria(imovelDetalhes)}
-                  aria-label={`Ver fotos de ${imovelDetalhes.titulo || "imÃ³vel"}`}
+                  aria-label={`Ver fotos de ${imovelDetalhes.titulo || "imóvel"}`}
                 >
                   <img
-                    src={fotosDoImovel(imovelDetalhes)[0]}
-                    alt={imovelDetalhes.titulo || "ImÃ³vel"}
+                    src={
+                      fotosDoImovel(imovelDetalhes)[fotoDetalhesAtiva] ||
+                      fotosDoImovel(imovelDetalhes)[0]
+                    }
+                    alt={imovelDetalhes.titulo || "Imóvel"}
+                    onError={() => {
+                      const fotosDetalhes = fotosDoImovel(imovelDetalhes);
+                      setFotoDetalhesAtiva((atual) => {
+                        if (atual >= fotosDetalhes.length - 1) return atual;
+                        return atual + 1;
+                      });
+                    }}
                   />
                   <span>
                     <ImageIcon size={17} />
@@ -2620,25 +2982,25 @@ function proximaFoto() {
               ) : (
                 <div className="details-image-placeholder">
                   <Home size={50} />
-                  <span>ImÃ³vel de leilÃ£o</span>
+                  <span>Imóvel de leilão</span>
                 </div>
               )}
             </div>
-
+             
             <div className="details-body">
-              <span className="auction-badge">LEILÃƒO SFI</span>
+              <span className="auction-badge">LEILÃO SFI</span>
 
-              <h2>{imovelDetalhes.titulo || "ImÃ³vel"}</h2>
+              <h2>{imovelDetalhes.titulo || "Imóvel"}</h2>
 
               <div className="details-location">
                 <MapPin size={17} />
                 <span>
-                  {imovelDetalhes.cidade || "Cidade nÃ£o informada"}
+                  {imovelDetalhes.cidade || "Cidade não informada"}
                   {imovelDetalhes.estado ? ` - ${imovelDetalhes.estado}` : ""}
                 </span>
               </div>
 
-              <button
+              {papel !== "corretor" && <button
                 type="button"
                 className={`details-favorite ${
                   favoritos.some((id) => String(id) === String(imovelDetalhes.id))
@@ -2658,25 +3020,25 @@ function proximaFoto() {
                 {favoritos.some((id) => String(id) === String(imovelDetalhes.id))
                   ? "Remover dos favoritos"
                   : "Adicionar aos favoritos"}
-              </button>
+              </button>}
 
               <div className="details-discount">
-                ðŸ’° DESCONTO <strong>
+                💰 DESCONTO <strong>
                   {(calcularDesconto(imovelDetalhes) || 0).toFixed(2).replace(".", ",")}% OFF
                 </strong>
               </div>
 
               <div className="details-prices">
                 <div>
-                  <span>Valor de avaliaÃ§Ã£o</span>
+                  <span>Valor de avaliação</span>
                   <strong>{dinheiro(imovelDetalhes.valor_avaliacao)}</strong>
                 </div>
                 <div>
-                  <span>Valor do leilÃ£o</span>
+                  <span>Valor do leilão</span>
                   <strong>{dinheiro(imovelDetalhes.valor_leilao)}</strong>
                 </div>
                 <div>
-                  <span>VocÃª economiza</span>
+                  <span>Você economiza</span>
                   <strong>{dinheiro(calcularEconomia(imovelDetalhes))}</strong>
                 </div>
               </div>
@@ -2709,10 +3071,10 @@ function proximaFoto() {
                     <span>Desconto</span>
                     <strong>
                       {scoreDetalhes.desconto === null
-                        ? "NÃ£o informado"
+                        ? "Não informado"
                         : `${scoreDetalhes.desconto.toFixed(2).replace(".", ",")}%`}
                     </strong>
-                    <small>{scoreDetalhes.pontosDesconto}/40 pontos</small>
+                    <small>{scoreDetalhes.pontosDesconto}/30 pontos</small>
                   </div>
 
                   <div className="score-factor">
@@ -2720,19 +3082,19 @@ function proximaFoto() {
                     <strong>
                       {scoreDetalhes.economia > 0
                         ? dinheiro(scoreDetalhes.economia)
-                        : "NÃ£o informado"}
+                        : "Não informado"}
                     </strong>
-                    <small>{scoreDetalhes.pontosEconomia}/20 pontos</small>
+                    <small>{scoreDetalhes.pontosEconomia}/15 pontos</small>
                   </div>
 
                   <div className="score-factor">
-                    <span>Economia por mÂ²</span>
+                    <span>Economia por m²</span>
                     <strong>
                       {scoreDetalhes.economiaPorM2 !== null
-                        ? `${dinheiro(scoreDetalhes.economiaPorM2)}/mÂ²`
-                        : "NÃ£o informado"}
+                        ? `${dinheiro(scoreDetalhes.economiaPorM2)}/m²`
+                        : "Não informado"}
                     </strong>
-                    <small>{scoreDetalhes.pontosEconomiaM2}/15 pontos</small>
+                    <small>{scoreDetalhes.pontosEconomiaM2}/10 pontos</small>
                   </div>
 
                   <div className="score-factor">
@@ -2744,55 +3106,83 @@ function proximaFoto() {
                   </div>
 
                   <div className="score-factor">
-                    <span>Data do leilÃ£o</span>
+                    <span>Data do leilão</span>
                     <strong>
                       {scoreDetalhes.leilaoJaRealizado
-                        ? "LeilÃ£o jÃ¡ realizado"
+                        ? "Leilão já realizado"
                         : scoreDetalhes.diasAteLeilao !== null
                           ? `${scoreDetalhes.diasAteLeilao} dias`
-                          : "NÃ£o informado"}
+                          : "Não informado"}
                     </strong>
                     <small>{scoreDetalhes.pontosData}/10 pontos</small>
+                  </div>
+
+                  <div className="score-factor">
+                    <span>Resultado financeiro</span>
+
+                    <strong>
+                      {Number.isFinite(scoreDetalhes.roi)
+                        ? `ROI ${scoreDetalhes.roi.toFixed(2).replace(".", ",")}%`
+                        : "Não informado"}
+                    </strong>
+
+                    <small>
+                      {scoreDetalhes.pontosFinanceiros}/20 pontos
+                    </small>
                   </div>
                 </div>
               </section>
 
+              <Oportunidade
+                imovel={imovelDetalhes}
+                usuario={usuario}
+                token={token}
+                dinheiro={dinheiro}
+                oportunidadeInicial={
+                  papel === "corretor"
+                    ? oportunidadeSelecionada
+                    : null
+                }
+                onCenarioSelecionado={atualizarCenarioSelecionado}
+                cenarioSelecionadoId={cenarioDetalhes?.id ?? null}
+              />
+
               <section
                 className={`decision-indicator details-decision ${decisaoDetalhes.classe}`}
-                aria-label={`DecisÃ£o da oportunidade: ${decisaoDetalhes.titulo}`}
+                aria-label={`Decisão da oportunidade: ${decisaoDetalhes.titulo}`}
               >
                 <IconeDecisao size={22} aria-hidden="true" />
                 <div>
-                  <span>DecisÃ£o da oportunidade</span>
+                  <span>Decisão da oportunidade</span>
                   <strong>{decisaoDetalhes.titulo}</strong>
                   <small>{decisaoDetalhes.descricao}</small>
                 </div>
               </section>
 
-              {/* ANÃLISE FINANCEIRA */}
+              {/* ANÁLISE FINANCEIRA */}
               {analiseDetalhes && (
                 <div className="financial-analysis">
 
-                  <h3>AnÃ¡lise financeira</h3>
+                  <h3>Análise financeira</h3>
 
                   <div className="financial-grid">
 
                     <div className="financial-card">
-                      <span>Valor/mÂ² avaliaÃ§Ã£o</span>
+                      <span>Valor/m² avaliação</span>
                       <strong>
                         {dinheiro(analiseDetalhes.valorM2Avaliacao)}
                       </strong>
                     </div>
 
                     <div className="financial-card">
-                      <span>Valor/mÂ² leilÃ£o</span>
+                      <span>Valor/m² leilão</span>
                       <strong>
                         {dinheiro(analiseDetalhes.valorM2Leilao)}
                       </strong>
                     </div>
 
                     <div className="financial-card">
-                      <span>Economia por mÂ²</span>
+                      <span>Economia por m²</span>
                       <strong>
                         {dinheiro(
                           analiseDetalhes.valorM2Avaliacao -
@@ -2805,18 +3195,38 @@ function proximaFoto() {
 
                   <div className="financial-simulation">
 
-                    <h4>SimulaÃ§Ã£o do investimento</h4>
+                    <h4>Simulação do investimento</h4>
+
+                    {cenarioDetalhes ? (
+                      <>
+                        <p>Valores do cenário selecionado: {cenarioDetalhes.nome}. A soma de custos considera os valores informados no cenário.</p>
+                        <div className="financial-results">
+                          <div><span>Preço de aquisição</span><strong>{dinheiro(cenarioDetalhes.preco_aquisicao)}</strong></div>
+                          <div><span>Impostos e taxas</span><strong>{cenarioDetalhes.impostos_taxas == null ? "Não informado" : dinheiro(cenarioDetalhes.impostos_taxas)}</strong></div>
+                          <div><span>Custos jurídicos</span><strong>{cenarioDetalhes.custos_juridicos == null ? "Não informado" : dinheiro(cenarioDetalhes.custos_juridicos)}</strong></div>
+                          <div><span>Reformas</span><strong>{cenarioDetalhes.reformas == null ? "Não informado" : dinheiro(cenarioDetalhes.reformas)}</strong></div>
+                          <div><span>Outras despesas</span><strong>{cenarioDetalhes.outras_despesas == null ? "Não informado" : dinheiro(cenarioDetalhes.outras_despesas)}</strong></div>
+                          <div><span>Custo total</span><strong>{dinheiro(cenarioDetalhes.custo_total)}</strong></div>
+                          <div><span>Revenda estimada</span><strong>{dinheiro(cenarioDetalhes.valor_revenda)}</strong></div>
+                          <div><span>Lucro estimado</span><strong>{dinheiro(cenarioDetalhes.lucro_estimado)}</strong></div>
+                          <div><span>ROI</span><strong>{cenarioDetalhes.roi == null ? "—" : `${Number(cenarioDetalhes.roi).toFixed(2).replace(".", ",")}%`}</strong></div>
+                          <div><span>Margem sobre revenda</span><strong>{cenarioDetalhes.margem_revenda == null ? "—" : `${Number(cenarioDetalhes.margem_revenda).toFixed(2).replace(".", ",")}%`}</strong></div>
+                        </div>
+                        {cenarioDetalhes.custos_nao_informados?.length > 0 && <p className="simulador-alerta">Custos por confirmar: {cenarioDetalhes.custos_nao_informados.join(", ")}. ROI e margem não pontuam no score enquanto estes dados estiverem ausentes.</p>}
+                      </>
+                    ) : (
+                      <>
 
                     <div className="financial-input-grid">
 
                       <label>
-                        ComissÃ£o do leiloeiro
+                        Comissão do leiloeiro
                         <input
                           type="number"
                           min="0"
                           value={valorInputFinanceiro(
                             custosArremate[imovelDetalhes.id]?.comissao ??
-                            analiseDetalhes.comissao
+                              analiseDetalhes.comissao
                           )}
                           onChange={(e) =>
                             atualizarCustoArremate("comissao", e.target.value)
@@ -2958,125 +3368,137 @@ function proximaFoto() {
                         <strong>
                           {Number.isFinite(analiseDetalhes.retornoSobreInvestimento)
                             ? `${analiseDetalhes.retornoSobreInvestimento.toFixed(2).replace(".", ",")}%`
-                            : "â€”"}
+                            : "—"}
                         </strong>
                       </div>
 
                       <div>
-                        <span>Margem de seguranÃ§a</span>
+                        <span>Margem de segurança</span>
                         <strong>
                           {Number.isFinite(analiseDetalhes.margemSeguranca)
                             ? `${analiseDetalhes.margemSeguranca.toFixed(2).replace(".", ",")}%`
-                            : "â€”"}
+                            : "—"}
                         </strong>
                       </div>
 
                     </div>
+                      </>
+                    )}
 
                   </div>
 
                 </div>
               )}
 
-              <h3>Dados do leilÃ£o</h3>
+
+              <h3>Dados do leilão</h3>
 
               <div className="details-auction-grid">
 
                 <div>
-                  <span>1Âº leilÃ£o</span>
+                  <span>1º leilão</span>
                   <strong>
                     {imovelDetalhes.data_primeiro_leilao
                       ? formatarData(imovelDetalhes.data_primeiro_leilao)
-                      : "NÃ£o informado"}
+                      : "Não informado"}
                   </strong>
                 </div>
 
                 <div>
-                  <span>2Âº leilÃ£o</span>
+                  <span>2º leilão</span>
                   <strong>
                     {imovelDetalhes.data_segundo_leilao
                       ? formatarData(imovelDetalhes.data_segundo_leilao)
-                      : "NÃ£o informado"}
+                      : "Não informado"}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Licitação aberta</span>
+                  <strong>
+                    {imovelDetalhes.data_licitacao_aberta
+                      ? formatarData(imovelDetalhes.data_licitacao_aberta)
+                      : "Não informado"}
                   </strong>
                 </div>
 
                 <div>
                   <span>Modalidade</span>
                   <strong>
-                    {imovelDetalhes.modalidade || "NÃ£o informado"}
+                    {imovelDetalhes.modalidade || "Não informado"}
                   </strong>
                 </div>
 
                 <div>
-                  <span>Valor de avaliaÃ§Ã£o</span>
+                  <span>Valor de avaliação</span>
                   <strong>
                     {Number.isFinite(Number(imovelDetalhes.valor_avaliacao))
                       ? Number(imovelDetalhes.valor_avaliacao).toLocaleString("pt-BR", {
                           style: "currency",
                           currency: "BRL",
                         })
-                      : "NÃ£o informado"}
+                      : "Não informado"}
                   </strong>
                 </div>
 
                 <div>
-                  <span>Valor do leilÃ£o</span>
+                  <span>Valor do leilão</span>
                   <strong>
                     {Number.isFinite(Number(imovelDetalhes.valor_leilao))
                       ? Number(imovelDetalhes.valor_leilao).toLocaleString("pt-BR", {
                           style: "currency",
                           currency: "BRL",
                         })
-                      : "NÃ£o informado"}
+                      : "Não informado"}
                   </strong>
                 </div>
 
                 <div>
-                  <span>Ãrea</span>
+                  <span>Área</span>
                   <strong>
                     {imovelDetalhes.area
-                      ? `${Number(imovelDetalhes.area).toLocaleString("pt-BR")} mÂ²`
-                      : "NÃ£o informado"}
+                      ? `${Number(imovelDetalhes.area).toLocaleString("pt-BR")} m²`
+                      : "Não informado"}
                   </strong>
                 </div>
 
                 <div>
                   <span>Quartos</span>
                   <strong>
-                    {imovelDetalhes.quartos ?? "NÃ£o informado"}
+                    {imovelDetalhes.quartos ?? "Não informado"}
                   </strong>
                 </div>
 
                 <div>
                   <span>Banheiros</span>
                   <strong>
-                    {imovelDetalhes.banheiros ?? "NÃ£o informado"}
+                    {imovelDetalhes.banheiros ?? "Não informado"}
                   </strong>
                 </div>
 
                 <div>
                   <span>Vagas</span>
                   <strong>
-                    {imovelDetalhes.vagas ?? "NÃ£o informado"}
+                    {imovelDetalhes.vagas ?? "Não informado"}
                   </strong>
                 </div>
 
                 <div className="details-auction-wide">
                   <span>Leiloeiro</span>
                   <strong>
-                    {imovelDetalhes.leiloeiro || "NÃ£o informado"}
+                    {imovelDetalhes.leiloeiro || "Não informado"}
                   </strong>
                 </div>
 
                 <div className="details-auction-wide">
                   <span>Processo</span>
                   <strong>
-                    {imovelDetalhes.processo || "NÃ£o informado"}
+                    {imovelDetalhes.processo || "Não informado"}
                   </strong>
                 </div>
 
                 <div className="details-auction-wide">
-                  <span>EndereÃ§o</span>
+                  <span>Endereço</span>
                   <strong>
                     {[
                       imovelDetalhes.endereco,
@@ -3084,7 +3506,7 @@ function proximaFoto() {
                       imovelDetalhes.estado,
                     ]
                       .filter(Boolean)
-                      .join(" - ") || "NÃ£o informado"}
+                      .join(" - ") || "Não informado"}
                   </strong>
                 </div>
 
@@ -3098,7 +3520,7 @@ function proximaFoto() {
                     rel="noopener noreferrer"
                     className="details-button secondary"
                   >
-                    ðŸ”— Ver edital <ExternalLink size={17} />
+                    🔗 Ver edital <ExternalLink size={17} />
                   </a>
                 )}
                 {imovelDetalhes.url && (
@@ -3108,7 +3530,7 @@ function proximaFoto() {
                     rel="noopener noreferrer"
                     className="details-button"
                   >
-                    ðŸ”— Ver anÃºncio original <ExternalLink size={17} />
+                    🔗 Ver anúncio original <ExternalLink size={17} />
                   </a>
                 )}
                 <button

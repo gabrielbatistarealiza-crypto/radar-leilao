@@ -71,7 +71,11 @@ def gerar_notificacoes(db: Session, agora: date | None = None) -> int:
 
             criterio = next((c for c in criterios if c.id == item["criterio_id"]), None)
             if criterio:
-                for nome, campo in (("primeiro", "data_primeiro_leilao"), ("segundo", "data_segundo_leilao")):
+                for nome, campo in (
+                    ("primeiro", "data_primeiro_leilao"),
+                    ("segundo", "data_segundo_leilao"),
+                    ("licitacao_aberta", "data_licitacao_aberta"),
+                ):
                     data_leilao = imovel.get(campo)
                     if data_leilao is None:
                         continue
@@ -84,8 +88,18 @@ def gerar_notificacoes(db: Session, agora: date | None = None) -> int:
                             imovel_id=imovel["id"],
                             evento=f"prazo:{nome}:{data_leilao.isoformat()}",
                             tipo="prazo",
-                            titulo="Leilão se aproxima",
-                            mensagem=f"{imovel['titulo']}: {nome} leilão em {dias} dia(s), em {data_leilao.isoformat()}.",
+                            titulo=(
+                                "Licitação Aberta se aproxima"
+                                if nome == "licitacao_aberta"
+                                else "Leilão se aproxima"
+                            ),
+                            mensagem=(
+                                f"{imovel['titulo']}: Licitação Aberta em {dias} dia(s), "
+                                f"em {data_leilao.isoformat()}."
+                                if nome == "licitacao_aberta"
+                                else f"{imovel['titulo']}: {nome} leilão em {dias} dia(s), "
+                                f"em {data_leilao.isoformat()}."
+                            ),
                         ))
 
             for notificacao in eventos:

@@ -1,0 +1,21 @@
+# Flutter/Dart generated files
+.dart_tool/
+.packages
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android build files
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# iOS generated files
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+
+# IDE (IntelliJ / Android Studio)
+*.iml
