@@ -86,3 +86,12 @@ frontend/src/*antes*.jsx
 frontend/src/App*.backup*.jsx
 frontend/src/App*.antes*.jsx
 frontend/src/App.jsx.*
+
+# =========================
+# Copias de seguranca locais e ferramentas de uso unico
+# =========================
+*.bak
+*.backup_*
+backend/app_backup_encoding*/
+/App-atual.txt
+/corrigir_*.py
