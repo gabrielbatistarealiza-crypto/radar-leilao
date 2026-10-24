@@ -16,3 +16,6 @@ android/app/release/
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
 ios/Flutter/ephemeral/
+
+# IDE (IntelliJ / Android Studio)
+*.iml
