@@ -1,6 +1,6 @@
 # Radar Leilão: estado atual, decisões em aberto e deploy
 
-_Atualizado em 26/10/2026. Em produção: API no commit `40bbb95` (PR #2) e site no
+_Atualizado em 26/10/2026. Em produção: API no commit `0e84870` (PR #5) e site no
 `f17d4a0` (PR #3), com as rotinas automáticas da Caixa desligadas (secção 7)._
 
 Este documento substitui o `LEIA-ME-PRIMEIRO.md` e o `INTEGRACAO.md`, que eram notas de
@@ -75,7 +75,13 @@ Próximos passos (por fazer):
    aceite. Teste `xfail`: `test_negociacao_aceita_nao_deveria_voltar_para_recusada`.
 3. **O cliente pode aceitar a própria negociação.** `PATCH /negociacoes/{id}/status` só
    verifica o acesso à oportunidade, não o papel de quem altera.
-4. **Login sem limite de tentativas** e com `print("LOGIN OK")` em `routers/login.py`.
+4. **Resolvida a 26/10/2026 (PR #5, `0e84870`): limite de tentativas de login.** O
+   `POST /login` bloqueia um e-mail depois de 5 tentativas falhadas em 15 minutos (429 com
+   `Retry-After`, a mesma resposta exista ou não a conta), procura a conta sem distinguir
+   maiúsculas e já não tem o `print("LOGIN OK")`. Validado em produção com um e-mail
+   inventado: cinco 401 e depois 429. Limitações: o contador é em memória e volta a zero
+   em cada deploy ou reinício da API; quem conheça um e-mail pode bloqueá-lo até 15
+   minutos; o registo de contas ainda guarda o e-mail como foi escrito.
 5. **O alerta de prazo dispara fora dos filtros do critério** (estado, desconto, etc.).
    Teste `xfail`: `test_prazo_proximo_nao_deveria_alertar_imovel_fora_dos_filtros`.
 6. **A importação só traz "Leilão SFI - Edital Único"**, comparando o texto exato. Se a
@@ -190,13 +196,20 @@ não faz deploy de nenhum. As Pull Request Previews estão desligadas em ambos.
 - Site "Live" no commit `f17d4a0` (PR #3) desde as 02:45, construído com o vite 8.2.4 e
   sem vulnerabilidades no `npm audit`. Serve o mesmo `index-B3LJp9uO.js` de antes. O merge
   do PR #3 não fez deploy da API.
+- API "Live" no commit `0e84870` (PR #5) desde as 03:29, com a mesma mensagem de rotinas
+  desativadas no arranque e sem atividade da Caixa. Com um e-mail inventado, `POST /login`
+  deu 401 cinco vezes e depois 429 com `Retry-After: 899`; o aviso no log não inclui o
+  e-mail. O merge do PR #5 não fez deploy do site.
 
 **Feito**
 - Logging da app em INFO: PR #2, em produção desde 26/10/2026 (`40bbb95`).
 - Aviso do `npm audit` (vite 8.2.4 e source-map-js 1.2.2): PR #3, em produção desde
   26/10/2026 (`f17d4a0`).
+- Limite de tentativas de login (decisão 4): PR #5, em produção desde 26/10/2026
+  (`0e84870`).
 
 **Por investigar ou por fazer**
+- Confirmar o login normal pelo site com uma conta real, depois do PR #5.
 - A causa de "galeria não encontrada" (secção 8).
 - A validação da Caixa e a recuperação das datas (secção 2).
 
