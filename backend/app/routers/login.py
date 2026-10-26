@@ -5,6 +5,7 @@ from collections import defaultdict, deque
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -78,6 +79,25 @@ def _chave(email: str) -> str:
     return email.strip().lower()
 
 
+def _procurar_usuario(db: Session, email: str, chave: str) -> Usuario | None:
+    """Procura a conta do e-mail sem distinguir maiúsculas, como o contador.
+
+    Primeiro o e-mail exatamente como foi escrito; senão, sem distinguir
+    maiúsculas, mas só se houver uma única conta. Se duas contas diferirem
+    apenas nas maiúsculas, só o e-mail exato entra.
+    """
+    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    if usuario:
+        return usuario
+    candidatos = (
+        db.query(Usuario)
+        .filter(func.lower(Usuario.email) == chave)
+        .limit(2)
+        .all()
+    )
+    return candidatos[0] if len(candidatos) == 1 else None
+
+
 @router.post("/login")
 def login(dados: Login, db: Session = Depends(get_db)):
     chave = _chave(dados.email)
@@ -92,11 +112,7 @@ def login(dados: Login, db: Session = Depends(get_db)):
             headers={"Retry-After": str(espera)},
         )
 
-    usuario = (
-        db.query(Usuario)
-        .filter(Usuario.email == dados.email)
-        .first()
-    )
+    usuario = _procurar_usuario(db, dados.email, chave)
 
     if not usuario or not verificar_senha(dados.senha, usuario.senha):
         limite_login.registar_falha(chave)

@@ -1,5 +1,5 @@
 """Limite de tentativas falhadas de login (decisão 4)."""
-from conftest import SENHA
+from conftest import SENHA, criar_usuario
 from app.routers import login as modulo_login
 from app.routers.login import LimiteTentativasLogin, TENTATIVAS_FALHADAS_MAX
 
@@ -61,6 +61,29 @@ def test_login_certo_antes_do_maximo_limpa_as_falhas(http, cliente):
 
     assert _falhar(http, cliente.email, TENTATIVAS_FALHADAS_MAX - 1) == [401] * (TENTATIVAS_FALHADAS_MAX - 1)
     assert http.post("/login", json={"email": cliente.email, "senha": SENHA}).status_code == 200
+
+
+def test_login_aceita_o_email_com_outras_maiusculas(http, cliente):
+    resposta = http.post("/login", json={"email": cliente.email.upper(), "senha": SENHA})
+
+    assert resposta.status_code == 200
+
+
+def test_login_encontra_conta_guardada_com_maiusculas(http, sessao):
+    criar_usuario(sessao, "Maria.Silva@teste.com")
+
+    resposta = http.post("/login", json={"email": "maria.silva@teste.com", "senha": SENHA})
+
+    assert resposta.status_code == 200
+
+
+def test_contas_que_so_diferem_nas_maiusculas_so_entram_com_o_email_exato(http, sessao):
+    criar_usuario(sessao, "Ana@teste.com")
+    criar_usuario(sessao, "ana@teste.com")
+
+    assert http.post("/login", json={"email": "Ana@teste.com", "senha": SENHA}).status_code == 200
+    assert http.post("/login", json={"email": "ana@teste.com", "senha": SENHA}).status_code == 200
+    assert http.post("/login", json={"email": "ANA@teste.com", "senha": SENHA}).status_code == 401
 
 
 def test_bloqueio_expira_com_a_janela():
