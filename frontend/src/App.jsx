@@ -1222,15 +1222,8 @@ const analise = cenarioSelecionado
         params.append("direcao", "asc");
       }
 
-      console.log("PARAMETROS:", params.toString());
-      console.log("CIDADE BUSCADA:", busca);
-      console.log("ESTADO:", estado);
-      console.log("MODALIDADE:", params.get("modalidade"));
-
       const url =
         `${API_URL}/imoveis/?${params.toString()}`;
-
-      console.log("BUSCANDO:", url);
 
       const resposta = await fetch(url);
       const corpoResposta = await resposta.text();
@@ -1251,11 +1244,6 @@ const analise = cenarioSelecionado
         );
       }
 
-      console.log(
-        "RESPOSTA DA API:",
-        dados
-      );
-
       const listaImoveis = Array.isArray(dados.items)
         ? dados.items
         : Array.isArray(dados.itens)
@@ -1269,8 +1257,6 @@ const analise = cenarioSelecionado
       }
 
       if (idRequisicao !== requisicaoImoveisAtual.current) return;
-
-      console.log("IMÓVEIS PARA RENDERIZAR:", listaImoveis.length);
 
       setImoveis(listaImoveis);
 
