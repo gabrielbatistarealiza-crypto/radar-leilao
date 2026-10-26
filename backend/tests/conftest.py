@@ -114,6 +114,9 @@ def http(sessao):
     for modulo in ROUTERS:
         aplicacao.include_router(modulo.router)
 
+    # O limite de tentativas de login vive no módulo: cada teste começa do zero.
+    login.limite_login.limpar_tudo()
+
     def usar_sessao():
         return sessao
 
