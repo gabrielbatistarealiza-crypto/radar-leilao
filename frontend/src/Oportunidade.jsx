@@ -284,12 +284,7 @@ function Oportunidade({ imovel, usuario, token, dinheiro, oportunidadeInicial = 
     try {
       setErro("");
 
-      console.log("ENVIANDO CONTRAPROPOSTA");
-      console.log("ID negociação:", negociacaoAtual.id);
-      console.log("Valor:", valor);
-      console.log("Observações:", observacoesContraproposta);
-
-      const resultado = await requisicao(
+      await requisicao(
         `/negociacoes/${negociacaoAtual.id}/status`,
         {
           method: "PATCH",
@@ -301,8 +296,6 @@ function Oportunidade({ imovel, usuario, token, dinheiro, oportunidadeInicial = 
           }),
         }
       );
-
-      console.log("RESPOSTA DO BACKEND:", resultado);
 
       setMostrarContraproposta(false);
       setValorContraproposta("");
@@ -672,7 +665,6 @@ function Oportunidade({ imovel, usuario, token, dinheiro, oportunidadeInicial = 
                 <button
                   type="button"
                   onClick={() => {
-                    console.log("CLIQUEI EM ENVIAR CONTRAPROPOSTA");
                     enviarContraproposta();
                   }}
                 >
