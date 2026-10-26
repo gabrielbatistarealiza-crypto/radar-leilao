@@ -1,7 +1,7 @@
 # Radar Leilão: estado atual, decisões em aberto e deploy
 
-_Atualizado em 24/10/2026. Em produção: `main` no commit `8126830` (merge do PR #1),
-com as rotinas automáticas da Caixa desligadas (secção 7)._
+_Atualizado em 26/10/2026. Em produção: API no commit `40bbb95` (PR #2) e site no
+`f17d4a0` (PR #3), com as rotinas automáticas da Caixa desligadas (secção 7)._
 
 Este documento substitui o `LEIA-ME-PRIMEIRO.md` e o `INTEGRACAO.md`, que eram notas de
 entrega de um pacote antigo. **Não sigas as instruções de "copiar por cima" desses
@@ -148,7 +148,9 @@ São 4 testes unitários. O teste de integração precisa do emulador: ver `back
 ## 7. Produção no Render (24/10/2026)
 
 Projeto "My project", ambiente Production. Os dois serviços fazem deploy automático a
-cada commit em `main`; as Pull Request Previews estão desligadas em ambos.
+partir de `main`, mas **cada um só quando o commit altera a sua pasta** (Root Directory):
+a API em `backend/` e o site em `frontend`. Uma alteração só em `docs/`, por exemplo,
+não faz deploy de nenhum. As Pull Request Previews estão desligadas em ambos.
 
 | Serviço | Tipo | Endereço |
 |---|---|---|
@@ -180,12 +182,22 @@ cada commit em `main`; as Pull Request Previews estão desligadas em ambos.
 - O CORS aceita o site e recusa outras origens.
 - Os logs da API não mostram atividade da Caixa desde o deploy das 06:00.
 
+**Estado observado em 26/10/2026**
+- API "Live" no commit `40bbb95` (PR #2) desde as 00:59. Os logs do arranque mostram
+  `INFO: app.main: Rotinas automáticas em segundo plano desativadas por configuração.` e
+  não têm linhas `[BROWSER]` nem `[GALERIA]`. As três variáveis da Caixa continuam
+  `1`/`0`/`0`.
+- Site "Live" no commit `f17d4a0` (PR #3) desde as 02:45, construído com o vite 8.2.4 e
+  sem vulnerabilidades no `npm audit`. Serve o mesmo `index-B3LJp9uO.js` de antes. O merge
+  do PR #3 não fez deploy da API.
+
+**Feito**
+- Logging da app em INFO: PR #2, em produção desde 26/10/2026 (`40bbb95`).
+- Aviso do `npm audit` (vite 8.2.4 e source-map-js 1.2.2): PR #3, em produção desde
+  26/10/2026 (`f17d4a0`).
+
 **Por investigar ou por fazer**
 - A causa de "galeria não encontrada" (secção 8).
-- A configuração do logging da app, para as mensagens INFO aparecerem: corrigida no
-  PR #2 (`fix/logging-info`), por integrar em `main`.
-- O aviso do `npm audit` no build do site: corrigido no PR #3 (`fix/npm-audit-vite`,
-  vite 8.2.4 e source-map-js 1.2.2), por integrar em `main`.
 - A validação da Caixa e a recuperação das datas (secção 2).
 
 ## 8. Registo de 24/10/2026: worker de fotos antigo no Render
@@ -222,10 +234,11 @@ cada commit em `main`; as Pull Request Previews estão desligadas em ambos.
   deploy manual; o "Restart" não chega. Confirmar sempre um evento de deploy posterior à
   gravação.
 - As mensagens `logger.info` da app (por exemplo "Rotinas automáticas em segundo plano
-  desativadas por configuração.") **não aparecem nos logs**. Foi confirmado localmente:
-  com a configuração de logging do uvicorn, o logger da app fica em WARNING. A correção
-  está no PR #2 (`fix/logging-info`), por integrar em `main`. Até lá, a prova de que as
-  rotinas estão desligadas é `GET /caixa/enriquecer-datas/status` (`"habilitado": false`)
-  e a ausência de linhas `[BROWSER]`/`[GALERIA]` nos logs.
+  desativadas por configuração.") **não apareciam nos logs**. Foi confirmado localmente:
+  com a configuração de logging do uvicorn, o logger da app ficava em WARNING. Corrigido
+  no PR #2, em produção desde 26/10/2026 (`40bbb95`): a mensagem aparece agora no
+  arranque. Outras provas de que as rotinas estão desligadas:
+  `GET /caixa/enriquecer-datas/status` (`"habilitado": false`) e a ausência de linhas
+  `[BROWSER]`/`[GALERIA]` nos logs.
 - Não acordar a instância (nem com `/health`) antes de confirmar que as variáveis estão
   ativas.
