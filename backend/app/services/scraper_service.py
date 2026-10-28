@@ -20,7 +20,9 @@ from app.scrapers.caixa import CaixaFalhaTecnicaError, CaixaScraper
 from app.services.caixa_datas_worker import reativar_worker_datas_caixa
 from app.services.caixa_acesso import intervalo_entre_fotos, registrar_bloqueio_caixa
 
-from app.services.caixa_downloader import CaixaDownloader
+# Descarga das listas só com requests (sem Selenium); ver caixa_lista_segura.
+from app.services.caixa_lista_segura import CaixaListaSegura as CaixaDownloader
+from app.services.caixa_datas_edital import PARAGEM_MANUAL
 
 from app.models.atualizacao_caixa import AtualizacaoCaixa
 from app.models.oportunidade import Oportunidade
@@ -383,9 +385,46 @@ class ScraperService:
 
 
 
-    def atualizar_lista_caixa(self) -> dict:
+    # Nunca remove de uma vez mais do que isto (proteção contra listas incompletas).
+    LIMITE_REMOCAO_MINIMO = 50
+    LIMITE_REMOCAO_FRACAO = 0.05
 
-        """Baixa, importa e remove anuncios Caixa ausentes da lista atual."""
+    def _marcar_descarga_em_curso(self) -> None:
+        """Grava (com commit) a paragem manual ANTES de contactar a CAIXA.
+
+        Só é retirada se a descarga terminar sem bloqueio nem exceção: um
+        processo que morra a meio deixa todas as rotinas da CAIXA paradas.
+        """
+        from app.services.caixa_datas_worker import _obter_estado
+
+        estado = _obter_estado(self.db)
+        estado.bloqueado_ate = PARAGEM_MANUAL
+        estado.atualizado_em = datetime.utcnow()
+        self.db.commit()
+
+    def _fechar_descarga(self, download: dict) -> None:
+        from app.services.caixa_datas_worker import _obter_estado, registrar_paragem_manual
+
+        estado = _obter_estado(self.db)
+        if download.get("bloqueado"):
+            registrar_paragem_manual(estado, datetime.utcnow())
+            logger.warning(
+                "Lista da CAIXA: consultas PARADAS para revisão manual (%s em %s).",
+                download.get("paragem") or "bloqueio",
+                download.get("uf_bloqueada"),
+            )
+        else:
+            estado.bloqueado_ate = None
+            estado.atualizado_em = datetime.utcnow()
+        self.db.commit()
+
+    def atualizar_lista_caixa(self, max_ufs: int | None = None) -> dict:
+
+        """Baixa, importa e remove anuncios Caixa ausentes da lista atual.
+
+        `max_ufs` limita as UFs descarregadas (comando para a cópia); com menos
+        de 27 UFs nada é removido.
+        """
 
 
 
@@ -409,13 +448,15 @@ class ScraperService:
 
         try:
 
-            download = CaixaDownloader().baixar_todos()
+            self._marcar_descarga_em_curso()
+            baixador = CaixaDownloader()
+            download = (baixador.baixar_todos(max_ufs=max_ufs) if max_ufs
+                        else baixador.baixar_todos())
 
-            if download.get("bloqueado"):
-                # CAPTCHA no download: grava a espera partilhada. Os CSVs que já
-                # estavam no disco continuam a ser lidos; a limpeza de imóveis
-                # ausentes não corre porque o download ficou incompleto.
-                registrar_bloqueio_caixa(self.db, "importacao")
+            # Bloqueio ou resposta inesperada: paragem manual partilhada (todas as
+            # rotinas da CAIXA param até revisão). Os CSVs que já estavam no disco
+            # continuam a ser lidos; a limpeza não corre (download incompleto).
+            self._fechar_descarga(download)
 
             imoveis = self.executar_scraper_caixa()
 
@@ -434,6 +475,11 @@ class ScraperService:
 
 
             removidos = 0
+            remocao_recusada = 0
+
+            # Todas as listas desta descarga têm de ter a mesma data de geração.
+            geracoes = download.get("geracoes")
+            geracao_unica = geracoes is None or len(set(geracoes.values())) == 1
 
 
 
@@ -443,13 +489,23 @@ class ScraperService:
 
             # como se os respectivos imoveis tivessem saido da Caixa.
 
-            if estados_baixados == estados_esperados and urls_ativas:
+            if estados_baixados == estados_esperados and urls_ativas and geracao_unica:
 
-                removidos = self._remover_imoveis_caixa_inativos(
+                ausentes, limite = self._contar_ausentes(urls_ativas)
+                if ausentes > limite:
+                    remocao_recusada = ausentes
+                    logger.warning(
+                        "Limpeza de imoveis Caixa RECUSADA: %s ausentes da lista "
+                        "(limite %s). Rever manualmente.",
+                        ausentes,
+                        limite,
+                    )
+                else:
+                    removidos = self._remover_imoveis_caixa_inativos(
 
-                    urls_ativas
+                        urls_ativas
 
-                )
+                    )
 
             else:
 
@@ -506,6 +562,8 @@ class ScraperService:
                 "imoveis_atualizados": len(imoveis),
 
                 "imoveis_removidos": removidos,
+
+                "remocao_recusada": remocao_recusada,
 
                 "fila_fotos": fila_fotos,
 
@@ -702,6 +760,17 @@ class ScraperService:
             "resultados": resultados,
         }
 
+
+    def _contar_ausentes(self, urls_ativas: set[str]) -> tuple[int, int]:
+        """Quantos imóveis Caixa da base faltam na lista e o limite de remoção."""
+        urls = [
+            url for (url,) in self.db.query(Imovel.url).filter(
+                Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)
+            )
+        ]
+        ausentes = sum(1 for url in urls if url not in urls_ativas)
+        limite = max(self.LIMITE_REMOCAO_MINIMO, int(len(urls) * self.LIMITE_REMOCAO_FRACAO))
+        return ausentes, limite
 
     def _remover_imoveis_caixa_inativos(self, urls_ativas: set[str]) -> int:
         """Remove imóveis Caixa inativos sem apagar histórico comercial."""

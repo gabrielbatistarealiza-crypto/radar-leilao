@@ -738,8 +738,6 @@ class CaixaScraper(BaseScraper):
                 if modalidade != "Leilão SFI - Edital Único":
                     continue
 
-                print("URL ANTES:", repr(url))
-
                 # Normaliza URL da CAIXA.
                 # O CSV pode trazer:
                 # [https://...](https://...)
@@ -757,8 +755,6 @@ class CaixaScraper(BaseScraper):
                         # Caso jÃƒÂ¡ seja uma URL normal
                         match_url = re.search(r"https?://[^\s\]\)]+", url)
                         url = match_url.group(0) if match_url else None
-
-                print("URL DEPOIS:", repr(url))
 
                 # ============================================================
                 # DADOS DE DETALHE

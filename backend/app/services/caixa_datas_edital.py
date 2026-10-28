@@ -37,6 +37,7 @@ CABECALHOS = {"User-Agent": "Mozilla/5.0"}
 TIMEOUT_SEGUNDOS = (10, 30)  # ligação, leitura
 MAX_BYTES_PAGINA = 2 * 1024 * 1024
 MAX_BYTES_EDITAL = 30 * 1024 * 1024  # aproximado: pode ler mais um bloco de 64 KiB
+MAX_BYTES_LISTA = 20 * 1024 * 1024  # CSV de uma UF (o maior, RJ, tem ~3 MB)
 PISTAS_ANTIBOT = ("perfdrive", "radware", "hcaptcha", "recaptcha", "cf-chl", "bot manager")
 
 # Data muito no futuro = parado até alguém rever e limpar à mão.
@@ -79,11 +80,13 @@ def url_permitido(url: str, tipo: str) -> bool:
     caminho = partes.path.lower()
     if tipo == "edital":
         return caminho.startswith("/editais/") and caminho.endswith(".pdf") and not partes.query
+    if tipo == "lista":
+        return bool(re.fullmatch(r"/listaweb/lista_imoveis_[a-z]{2}\.csv", caminho)) and not partes.query
     return caminho == "/sistema/detalhe-imovel.asp"
 
 
 def pedir_caixa(url: str, tipo: str, sessao_factory=None) -> RespostaCaixa:
-    """UM GET à CAIXA. `tipo` é "pagina" ou "edital". Nunca repete."""
+    """UM GET à CAIXA. `tipo` é "pagina", "edital" ou "lista" (CSV de uma UF). Nunca repete."""
     import requests
 
     if not url_permitido(url, tipo):
@@ -116,7 +119,7 @@ def _tratar_resposta(requests, resposta, tipo) -> RespostaCaixa:
     if status in (403, 429):
         return RespostaCaixa(f"BLOQUEADO_HTTP_{status}", status=status)
 
-    limite = MAX_BYTES_EDITAL if tipo == "edital" else MAX_BYTES_PAGINA
+    limite = {"edital": MAX_BYTES_EDITAL, "lista": MAX_BYTES_LISTA}.get(tipo, MAX_BYTES_PAGINA)
     corpo = bytearray()
     try:
         for bloco in resposta.iter_content(64 * 1024):
@@ -137,8 +140,8 @@ def _tratar_resposta(requests, resposta, tipo) -> RespostaCaixa:
         return RespostaCaixa(f"HTTP_INESPERADO_{status}", status=status)
     if tipo == "edital" and not corpo.startswith(b"%PDF-"):
         return RespostaCaixa("NAO_E_PDF", status=status)
-    if tipo == "pagina" and corpo.startswith(b"%PDF-"):
-        return RespostaCaixa("NAO_E_HTML", status=status)
+    if tipo in ("pagina", "lista") and corpo.startswith(b"%PDF-"):
+        return RespostaCaixa("NAO_E_HTML" if tipo == "pagina" else "NAO_E_CSV_DA_CAIXA", status=status)
     return RespostaCaixa("OK", status=status, corpo=corpo)
 
 

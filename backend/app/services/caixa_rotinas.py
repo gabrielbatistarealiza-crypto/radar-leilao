@@ -58,7 +58,9 @@ def executar_lote_fotos(db, limite: int) -> dict:
     return _com_acesso(db, "fotos-worker", lambda: processar_lote_fotos_caixa(db, limite))
 
 
-def executar_importacao(db) -> dict:
+def executar_importacao(db, max_ufs: int | None = None) -> dict:
     from app.services.scraper_service import ScraperService
 
-    return _com_acesso(db, "importacao", lambda: ScraperService(db).atualizar_lista_caixa())
+    return _com_acesso(
+        db, "importacao", lambda: ScraperService(db).atualizar_lista_caixa(max_ufs=max_ufs)
+    )
