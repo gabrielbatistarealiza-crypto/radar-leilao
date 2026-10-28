@@ -6,7 +6,9 @@ Quem chama deve segurar CAIXA_COLETA_LOCK (ver caixa_acesso.acesso_caixa).
 Cada volta usa só requests (sem Selenium) e faz no máximo 2 pedidos: a página
 do imóvel e, se ainda não foi lido, o PDF do edital (ver caixa_datas_edital).
 Perante qualquer bloqueio ou resposta inesperada o worker PARA até revisão
-manual: nunca repete o pedido nem retoma sozinho.
+manual: nunca repete o pedido nem retoma sozinho. Antes de cada GET grava a
+paragem manual como marca de "pedido em curso" e só a retira depois de gravar
+o resultado; um processo interrompido a meio deixa o worker parado.
 """
 import logging
 import os
@@ -125,9 +127,22 @@ def processar_lote_datas_caixa(
             "pedidos": 0,
         }
 
+    def marcar_pedido_em_curso(imovel_id: int) -> None:
+        # Gravada (commit) ANTES de cada GET e só retirada depois de gravar o
+        # resultado: se o processo morrer a meio, a próxima execução encontra a
+        # paragem manual e não repete o pedido.
+        estado.bloqueado_ate = PARAGEM_MANUAL
+        estado.atualizado_em = agora
+        db.commit()
+
     try:
-        resultado = processar_passo(db, estado, pedir=pedir, max_pedidos=max_pedidos)
+        resultado = processar_passo(
+            db, estado, pedir=pedir, max_pedidos=max_pedidos,
+            antes_de_pedir=marcar_pedido_em_curso,
+        )
     except Exception:
+        # Resultado desconhecido: a marca (se já gravada) fica e o worker
+        # permanece parado até revisão manual.
         db.rollback()
         raise
 
@@ -146,6 +161,7 @@ def processar_lote_datas_caixa(
         estado.ativo = False
     else:
         estado.bloqueios_consecutivos = 0
+        estado.bloqueado_ate = None  # retira a marca de pedido em curso
         estado.cursor_id = resultado["imovel_id"]
         resultado["tem_mais"] = bool(
             db.query(Imovel.id)

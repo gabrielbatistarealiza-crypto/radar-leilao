@@ -260,6 +260,60 @@ def test_fila_vazia_conclui_sem_pedidos(sessao, fabrica):
     assert estado(sessao).ativo is False
 
 
+# ------------------------------------------------- marca de pedido em curso
+
+def test_marca_gravada_antes_de_cada_pedido_e_retirada_no_fim(sessao, fabrica, motor):
+    from sqlalchemy.orm import sessionmaker
+
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    vistos = []
+    outra = sessionmaker(bind=motor)()  # outra sessão: só vê o que já teve commit
+
+    def pedir(url, tipo):
+        # Sem transação aberta na sessão do worker = o commit da marca acabou de acontecer.
+        assert not sessao.in_transaction()
+        outra.expire_all()
+        vistos.append((tipo, outra.get(CaixaDataWorkerState, 1).bloqueado_ate))
+        corpo = pagina(D1, D2) if tipo == "pagina" else pdf([N1, N2])
+        return RespostaCaixa("OK", status=200, corpo=corpo)
+
+    try:
+        worker.processar_lote_datas_caixa(sessao, pedir=pedir)
+    finally:
+        outra.close()
+
+    assert vistos == [("pagina", ce.PARAGEM_MANUAL), ("edital", ce.PARAGEM_MANUAL)]
+    assert estado(sessao).bloqueado_ate is None  # retirada depois de gravar o resultado
+
+
+def test_excecao_durante_o_pedido_deixa_o_worker_parado_sem_repetir(sessao, fabrica):
+    a = imovel(fabrica, N1)
+    pedidos = []
+
+    def pedir(url, tipo):
+        pedidos.append(url)
+        raise RuntimeError("o processo caiu a meio do pedido")
+
+    with pytest.raises(RuntimeError):
+        worker.processar_lote_datas_caixa(sessao, pedir=pedir)
+
+    assert estado(sessao).bloqueado_ate == ce.PARAGEM_MANUAL
+    r = worker.processar_lote_datas_caixa(sessao, pedir=pedir)
+    assert r["aguardando_bloqueio"] is True and r["paragem_manual"] is True
+    assert pedidos == [a.url]
+
+
+def test_executar_lote_datas_passa_o_limite_de_pedidos(sessao, fabrica):
+    from app.services.caixa_rotinas import executar_lote_datas
+
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    rede = Rede({a.url: pagina(D1, D2)})
+
+    r = executar_lote_datas(sessao, max_pedidos=1, pedir=rede)
+
+    assert r["estado_edital"] == "ADIADO_LIMITE_DE_PEDIDOS" and rede.pedidos == [(a.url, "pagina")]
+
+
 # ------------------------------------------------------------------ pedir_caixa
 
 class RespostaHttpFalsa:

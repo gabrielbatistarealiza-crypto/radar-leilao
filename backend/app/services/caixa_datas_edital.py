@@ -265,21 +265,29 @@ def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
     return {"membros_na_base": len(membros), "preenchidos_pelo_edital": preenchidos}
 
 
-def processar_passo(db, estado, pedir=None, max_pedidos: int = 2) -> dict:
-    """Um imóvel (+ o seu edital, se ainda não lido). Não faz commit nem trata do estado.
+def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None) -> dict:
+    """Um imóvel (+ o seu edital, se ainda não lido). Não trata do estado.
 
+    `antes_de_pedir(imovel_id)` é chamado imediatamente antes de CADA GET (o
+    worker usa-o para gravar, com commit, a marca de pedido em curso).
     Devolve sempre "pedidos" (quantos GET foram feitos) e, se for preciso parar,
     "paragem" com o motivo; nesse caso o chamador grava a paragem manual.
     """
-    pedir = pedir or pedir_caixa
+    pedir_real = pedir or pedir_caixa
     consulta = db.query(Imovel).filter(filtro_pendentes())
     if estado.cursor_id is not None:
         consulta = consulta.filter(Imovel.id > estado.cursor_id)
     imovel = consulta.order_by(Imovel.id.asc()).first()
     if imovel is None:
         return {"pedidos": 0, "processados": 0, "concluido": True}
+    imovel_id = imovel.id
 
-    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel.id, "atualizados": 0}
+    def pedir(url, tipo):
+        if antes_de_pedir:
+            antes_de_pedir(imovel_id)
+        return pedir_real(url, tipo)
+
+    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel_id, "atualizados": 0}
     resposta = pedir(imovel.url, "pagina")
     if not resposta.ok:
         resultado.update(paragem=resposta.veredicto, destino=resposta.destino)

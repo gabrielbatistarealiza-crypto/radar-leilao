@@ -2,8 +2,11 @@
 
 Cada volta = 1 imóvel pendente (+ o PDF do seu edital, se ainda não lido):
 no máximo 2 pedidos à CAIXA por volta, só com requests (nunca Selenium).
-Perante bloqueio ou resposta inesperada o worker PARA até revisão manual e
-este comando termina; não há novas tentativas.
+--max-pedidos é o limite TOTAL desta execução; quando só resta 1 pedido, o
+edital fica para outra execução. Perante bloqueio ou resposta inesperada o
+worker PARA até revisão manual e este comando termina; não há novas tentativas.
+Antes de cada pedido o worker grava a paragem manual como marca de "pedido em
+curso": se o processo morrer a meio, a execução seguinte não repete o pedido.
 
 Só aceita a base arremata_copia na porta 5433 (confirmado na ligação).
 A URL vem de RADAR_COPIA_DB_URL; o ficheiro .env não é usado para a escolher.
@@ -11,10 +14,10 @@ A URL vem de RADAR_COPIA_DB_URL; o ficheiro .env não é usado para a escolher.
 Rode a partir da pasta backend/:
 
   set RADAR_COPIA_DB_URL=postgresql://postgres@localhost:5433/arremata_copia
-  python scripts/datas_caixa_copia.py --voltas 3
+  python scripts/datas_caixa_copia.py --voltas 1 --max-pedidos 1
       ensaio: mostra o estado e o próximo imóvel, NÃO contacta a CAIXA
-  python scripts/datas_caixa_copia.py --voltas 3 --confirmo-contactar-caixa
-      faz no máximo 3 voltas (até 6 pedidos), com 60 s entre voltas
+  python scripts/datas_caixa_copia.py --voltas 1 --max-pedidos 1 --confirmo-contactar-caixa
+      no máximo 1 pedido (a página de 1 imóvel)
 """
 from __future__ import annotations
 
@@ -30,6 +33,7 @@ RAIZ_BACKEND = Path(__file__).resolve().parent.parent
 BASE_COPIA = "arremata_copia"
 PORTA_COPIA = 5433
 MAX_VOLTAS = 20
+MAX_PEDIDOS = 2 * MAX_VOLTAS
 INTERVALO_MINIMO = 60
 
 
@@ -69,6 +73,8 @@ def resumo_da_volta(resultado: dict) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--voltas", type=int, required=True, help=f"máximo de voltas (1 a {MAX_VOLTAS})")
+    p.add_argument("--max-pedidos", type=int, required=True,
+                   help=f"máximo TOTAL de pedidos à CAIXA nesta execução (1 a {MAX_PEDIDOS})")
     p.add_argument("--intervalo", type=int, default=INTERVALO_MINIMO,
                    help=f"segundos entre voltas (mínimo {INTERVALO_MINIMO})")
     p.add_argument("--registo", default=None, help="ficheiro .jsonl novo para o progresso")
@@ -77,6 +83,8 @@ def main() -> int:
 
     if not 1 <= args.voltas <= MAX_VOLTAS:
         sys.exit(f"Recusado: --voltas tem de estar entre 1 e {MAX_VOLTAS}.")
+    if not 1 <= args.max_pedidos <= MAX_PEDIDOS:
+        sys.exit(f"Recusado: --max-pedidos tem de estar entre 1 e {MAX_PEDIDOS}.")
     if args.intervalo < INTERVALO_MINIMO:
         sys.exit(f"Recusado: --intervalo mínimo é {INTERVALO_MINIMO} s.")
     url = os.environ.get("RADAR_COPIA_DB_URL", "").strip()
@@ -119,17 +127,20 @@ def main() -> int:
             print("ENSAIO: nada foi pedido à CAIXA nem gravado.")
             print(f"  próximo imóvel: {proximo.id if proximo else None} "
                   f"(número {numero_do_imovel(proximo.url) if proximo else None})")
-            print(f"  máximo: {args.voltas} voltas, até {2 * args.voltas} pedidos, "
+            print(f"  máximo: {args.voltas} voltas e {min(args.max_pedidos, 2 * args.voltas)} pedidos, "
                   f"{args.intervalo} s entre voltas; Selenium: não")
             db.rollback()
             return 0
 
-        momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        registo = Path(args.registo or f"registo_datas_caixa_{momento}.jsonl")
+        momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        registo = Path(args.registo or f"registo_datas_caixa_{momento}_{os.getpid()}.jsonl")
         pedidos = 0
         with open(registo, "x", encoding="utf-8") as f:  # nunca sobrescreve
             for volta in range(1, args.voltas + 1):
-                resultado = executar_lote_datas(db)
+                restantes = args.max_pedidos - pedidos
+                if restantes <= 0:
+                    break
+                resultado = executar_lote_datas(db, max_pedidos=min(2, restantes))
                 pedidos += resultado.get("pedidos", 0)
                 linha = {"volta": volta, "momento_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                          **resumo_da_volta(resultado)}
