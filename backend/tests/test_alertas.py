@@ -131,14 +131,8 @@ def test_leilao_proximo_de_imovel_que_combina_gera_alerta_de_prazo(http, fabrica
     assert item["alerta_prazo"] is True
 
 
-@pytest.mark.xfail(
-    reason="Possível defeito: hoje o alerta de prazo vale para QUALQUER imóvel com "
-    "leilão próximo, mesmo fora dos filtros do critério (estado, desconto etc.). "
-    "Confirme a intenção do produto; se for defeito, as notificações de prazo "
-    "também inundam o usuário.",
-    strict=False,
-)
-def test_prazo_proximo_nao_deveria_alertar_imovel_fora_dos_filtros(http, fabrica, cliente, autenticar):
+def test_prazo_proximo_nao_alerta_imovel_fora_dos_filtros(http, fabrica, cliente, autenticar):
+    # Decisão 5 (28/10/2026): o alerta de prazo respeita os filtros do critério.
     fabrica.imovel(
         titulo="Fora do critério", estado="PR",
         data_primeiro_leilao=date.today() + timedelta(days=3),

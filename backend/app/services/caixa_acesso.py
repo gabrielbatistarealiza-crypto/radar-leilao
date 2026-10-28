@@ -136,13 +136,13 @@ def acesso_caixa_http(db, origem: str):
             detail="Já existe uma consulta à CAIXA em curso. Tente mais tarde.",
         ) from erro
     except CaixaEmEspera as erro:
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                "A CAIXA bloqueou temporariamente as consultas. "
-                f"A retomada está prevista para {erro.bloqueado_ate.isoformat()}."
-            ),
-        ) from erro
+        if erro.bloqueado_ate.year >= 9999:  # paragem manual (caixa_datas_edital)
+            detalhe = ("As consultas à CAIXA estão paradas até revisão manual "
+                       "de um bloqueio ou resposta inesperada.")
+        else:
+            detalhe = ("A CAIXA bloqueou temporariamente as consultas. "
+                       f"A retomada está prevista para {erro.bloqueado_ate.isoformat()}.")
+        raise HTTPException(status_code=429, detail=detalhe) from erro
 
 
 def registrar_bloqueio_caixa(db, origem: str, agora: datetime | None = None) -> int:

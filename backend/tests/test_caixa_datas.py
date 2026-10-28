@@ -43,10 +43,8 @@ def sopa(html):
 @pytest.fixture(autouse=True)
 def limpar_estado_global():
     CaixaScraper._bloqueio_ate = 0.0
-    worker._falhas_tecnicas.clear()
     yield
     CaixaScraper._bloqueio_ate = 0.0
-    worker._falhas_tecnicas.clear()
 
 
 # ----------------------------------------------------- leitura da página
@@ -341,64 +339,34 @@ def test_falha_tecnica_para_a_leva_e_nao_salta_os_seguintes(sessao, fabrica, scr
 
 
 # ------------------------------------------------------------- worker
+# O comportamento do worker (imóvel + edital, paragem manual, sem Selenium)
+# está em test_caixa_datas_edital.py.
 
 def estado(sessao):
     sessao.expire_all()
     return sessao.get(CaixaDataWorkerState, 1)
 
 
-def test_falha_tecnica_repete_o_mesmo_imovel_ate_ao_limite(sessao, fabrica, scraper_falso):
+def test_fila_concluida_nao_corre_ate_ser_reativada(sessao, fabrica):
+    from app.services.caixa_datas_edital import RespostaCaixa
+
     a = imovel_caixa(fabrica, 1)
-    b = imovel_caixa(fabrica, 2)
-    scraper_falso(
-        {
-            a.url: CaixaFalhaTecnicaError("chrome"),
-            b.url: (date(2026, 9, 9), date(2026, 9, 20), None),
-        }
-    )
+    pedidos = []
 
-    for tentativa in range(1, worker.MAX_FALHAS_TECNICAS_POR_IMOVEL):
-        resultado = worker.processar_lote_datas_caixa(sessao)
-        assert resultado["tentar_novamente"] is True
-        assert resultado["tentativas_falha_tecnica"] == tentativa
-        assert estado(sessao).cursor_id == a.id - 1
-        assert estado(sessao).ativo is True
-        assert estado(sessao).bloqueado_ate is None
+    def pedir(url, tipo):
+        pedidos.append(url)
+        return RespostaCaixa("OK", status=200, corpo=PAGINA_SEM_DATAS.encode())
 
-    # Na última tentativa desiste deste e segue para o próximo.
-    resultado = worker.processar_lote_datas_caixa(sessao)
-    assert "tentar_novamente" not in resultado
-    assert estado(sessao).cursor_id == a.id
-
-    resultado = worker.processar_lote_datas_caixa(sessao)
-    assert resultado["atualizados"] == 1
-    assert resultado["concluido"] is True
-    assert estado(sessao).ativo is False
-
-
-def test_bloqueio_continua_a_recuar_o_cursor_e_esperar(sessao, fabrica, scraper_falso):
-    a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: "BLOQUEIO"})
-    agora = datetime(2026, 10, 23, 12, 0, 0)
-
-    resultado = worker.processar_lote_datas_caixa(sessao, agora=agora)
-
-    assert resultado["bloqueado"] is True
-    assert estado(sessao).cursor_id == a.id - 1
-    assert estado(sessao).bloqueado_ate == agora + timedelta(hours=12)
-
-
-def test_fila_concluida_nao_corre_ate_ser_reativada(sessao, fabrica, scraper_falso):
-    a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: (None, None, None)})
-
-    assert worker.processar_lote_datas_caixa(sessao)["concluido"] is True
-    assert worker.processar_lote_datas_caixa(sessao) == {"concluido": True}
+    primeiro = worker.processar_lote_datas_caixa(sessao, pedir=pedir)
+    assert primeiro["processados"] == 1 and primeiro["tem_mais"] is False
+    assert worker.processar_lote_datas_caixa(sessao, pedir=pedir)["concluido"] is True
+    assert worker.processar_lote_datas_caixa(sessao, pedir=pedir) == {"concluido": True, "pedidos": 0}
+    assert pedidos == [a.url]
 
     worker.reativar_worker_datas_caixa(sessao)
     sessao.commit()
 
-    resultado = worker.processar_lote_datas_caixa(sessao)
+    resultado = worker.processar_lote_datas_caixa(sessao, pedir=pedir)
     assert resultado["processados"] == 1
 
 
@@ -476,43 +444,89 @@ def chamar_endpoint_manual(sessao, limite=1, depois_id=None):
     )
 
 
-def test_endpoint_manual_grava_a_espera_apos_bloqueio(sessao, fabrica, scraper_falso):
+@pytest.fixture()
+def caixa_falsa(monkeypatch):
+    """Troca o pedido HTTP do passo novo (só requests) por respostas prontas."""
+    from app.services import caixa_datas_edital as ce
+
+    def _caixa(respostas):
+        pedidos = []
+
+        def pedir(url, tipo):
+            pedidos.append(url)
+            r = respostas[url]
+            return r if isinstance(r, ce.RespostaCaixa) else ce.RespostaCaixa("OK", status=200, corpo=r)
+
+        monkeypatch.setattr(ce, "pedir_caixa", pedir)
+        monkeypatch.setattr(
+            CaixaScraper, "_coletar_detalhes_com_selenium",
+            lambda *a, **k: pytest.fail("o endpoint manual não pode abrir o Selenium"),
+        )
+        return pedidos
+
+    return _caixa
+
+
+def test_endpoint_manual_para_ate_revisao_apos_bloqueio(sessao, fabrica, caixa_falsa):
+    from app.services.caixa_datas_edital import PARAGEM_MANUAL, RespostaCaixa
+
     a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: "BLOQUEIO"})
-    antes = datetime.utcnow()
+    caixa_falsa({a.url: RespostaCaixa("REDIRECIONADO", status=302)})
 
     resultado = chamar_endpoint_manual(sessao)
 
     atual = estado(sessao)
-    assert resultado["bloqueado"] is True
-    assert resultado["horas_espera"] == 12
-    assert atual.bloqueios_consecutivos == 1
-    assert atual.bloqueado_ate >= antes + timedelta(hours=12)
+    assert resultado["bloqueado"] is True and resultado["paragem"] == "REDIRECIONADO"
+    assert resultado["resultados"] == [{"id": a.id, "status": "BLOQUEADO_CAIXA"}]
+    assert atual.bloqueado_ate == PARAGEM_MANUAL and atual.bloqueios_consecutivos == 1
     # O endpoint manual não mexe no cursor do worker.
     assert atual.cursor_id is None
 
 
-def test_endpoint_manual_recusa_enquanto_dura_a_espera(sessao, fabrica, scraper_falso):
+def test_endpoint_manual_recusa_enquanto_dura_a_paragem(sessao, fabrica, caixa_falsa):
     from fastapi import HTTPException
 
+    from app.services.caixa_datas_edital import RespostaCaixa
+
     a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: "BLOQUEIO"})
+    pedidos = caixa_falsa({a.url: RespostaCaixa("BLOQUEADO_HTTP_403", status=403)})
     chamar_endpoint_manual(sessao)
 
     with pytest.raises(HTTPException) as erro:
         chamar_endpoint_manual(sessao)
     assert erro.value.status_code == 429
+    assert pedidos == [a.url]
 
 
-def test_endpoint_manual_sem_bloqueio_nao_cria_espera(sessao, fabrica, scraper_falso):
+def test_endpoint_manual_sem_bloqueio_devolve_o_formato_antigo(sessao, fabrica, caixa_falsa):
     a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: (date(2026, 9, 9), date(2026, 9, 20), None)})
+    b = imovel_caixa(fabrica, 2)
+    caixa_falsa({a.url: PAGINA_COM_DATAS.encode()})
 
     resultado = chamar_endpoint_manual(sessao)
 
-    assert resultado["atualizados"] == 1
+    assert resultado["processados"] == 1 and resultado["atualizados"] == 1
+    assert resultado["tem_mais"] is True and resultado["proximo_depois_id"] == a.id
+    assert resultado["resultados"] == [{"id": a.id, "status": "ATUALIZADO"}]
+    sessao.refresh(a)
+    assert a.data_primeiro_leilao == date(2026, 11, 10)
     atual = estado(sessao)
-    assert atual is None or atual.bloqueado_ate is None
+    assert atual.bloqueado_ate is None and atual.cursor_id is None
+
+
+def test_endpoint_manual_respeita_o_limite_diario(sessao, fabrica, caixa_falsa, monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", "1")
+    a = imovel_caixa(fabrica, 1)
+    b = imovel_caixa(fabrica, 2)
+    pedidos = caixa_falsa({a.url: PAGINA_SEM_DATAS.encode(), b.url: PAGINA_SEM_DATAS.encode()})
+    chamar_endpoint_manual(sessao)
+
+    with pytest.raises(HTTPException) as erro:
+        chamar_endpoint_manual(sessao, depois_id=a.id)
+    assert erro.value.status_code == 429 and "Limite diário" in erro.value.detail
+    assert pedidos == [a.url]
 
 
 def test_espera_progressiva_partilhada_com_o_worker(sessao):

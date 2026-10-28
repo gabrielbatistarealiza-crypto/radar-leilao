@@ -9,3 +9,5 @@ from app.models.anuncio_imovel import AnuncioImovel
 from app.models.anuncio_imagem import AnuncioImagem
 from app.models.atividade_oportunidade import AtividadeOportunidade
 from app.models.criterio_alerta import CriterioAlerta
+from app.models.caixa_data_worker_state import CaixaDataWorkerState
+from app.models.caixa_pedidos_dia import CaixaPedidosDia

@@ -75,6 +75,21 @@ def test_importa_so_leilao_sfi_edital_unico(tmp_path):
     assert [i.url for i in resultado] == [URL.format(1)]
 
 
+@pytest.mark.parametrize("rotulo", [
+    "Leilão SFI - Edital Único", "LEILÃO SFI - EDITAL ÚNICO", "Leilao SFI - Edital Unico",
+    "Leilão SFI – Edital Único", "  Leilão  SFI -  Edital Único ",
+])
+def test_rotulo_sfi_com_variacoes_continua_a_ser_importado(tmp_path, rotulo):
+    # Decisão 6: acentos, maiúsculas, travessões e espaços não mudam a modalidade.
+    [imovel] = processar(tmp_path, [linha(1, modalidade=rotulo)])
+    assert imovel.modalidade == SFI
+
+
+@pytest.mark.parametrize("rotulo", ["Leilão SFI", "Leilão SFI - Edital Único 2", "Venda Direta Online"])
+def test_outras_modalidades_continuam_de_fora(tmp_path, rotulo):
+    assert processar(tmp_path, [linha(1, modalidade=rotulo)]) == []
+
+
 def test_converte_os_campos_basicos(tmp_path):
     [imovel] = processar(tmp_path, [linha(1)])
     assert imovel.estado == "SP" and imovel.cidade == "CAMPINAS"

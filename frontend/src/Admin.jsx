@@ -4,6 +4,7 @@ import {
   aguardarComParagem,
   avaliarLote,
   intervaloDoStatus,
+  mensagemStatusWorker,
 } from "./ritmoEnriquecimentoCaixa";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -633,19 +634,13 @@ function Admin({ usuario, onLogout }) {
             <span>ATUALIZAÇÃO DA CAIXA</span>
             <h2>Datas dos leilões</h2>
             <p>
-              O backend consulta em segundo plano, um imóvel por vez. O progresso
-              fica salvo e a tela pode ser fechada; após um bloqueio, a busca
-              retoma automaticamente com uma espera maior.
+              O backend consulta em segundo plano, um imóvel por vez, com um
+              limite diário de pedidos. O progresso fica salvo e a tela pode ser
+              fechada. Perante um bloqueio, as consultas param até revisão manual.
             </p>
             {statusWorkerDatasCaixa && (
               <p className="admin-date-enrichment-message" role="status">
-                {statusWorkerDatasCaixa.status === "AGUARDANDO"
-                  ? `Worker aguardando a CAIXA liberar o acesso${statusWorkerDatasCaixa.bloqueado_ate ? ` até ${new Date(statusWorkerDatasCaixa.bloqueado_ate).toLocaleString("pt-BR")}` : ""}.`
-                  : statusWorkerDatasCaixa.status === "ATIVO"
-                    ? "Worker automático ativo."
-                    : statusWorkerDatasCaixa.status === "CONCLUIDO"
-                      ? "Fila atual concluída."
-                      : "Worker automático desativado."}
+                {mensagemStatusWorker(statusWorkerDatasCaixa)}
               </p>
             )}
             {enriquecimentoCaixa.mensagem && (

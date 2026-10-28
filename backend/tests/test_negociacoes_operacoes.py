@@ -134,17 +134,48 @@ def test_lista_negociacoes_da_oportunidade_da_mais_nova_para_a_mais_antiga(
     assert http.get(url, headers=autenticar(outro_cliente)).status_code == 403
 
 
-@pytest.mark.xfail(
-    reason="Decisão de negócio pendente: hoje qualquer transição é aceita, "
-    "inclusive reabrir ou recusar uma negociação já aceita.",
-    strict=False,
-)
-def test_negociacao_aceita_nao_deveria_voltar_para_recusada(
+def test_negociacao_aceita_nao_volta_para_recusada(
     http, fabrica, oportunidade, corretor, autenticar
 ):
+    # Decisão 2 (28/10/2026): estados finais não mudam.
     negociacao = fabrica.negociacao(oportunidade, status="aceita")
     resposta = mudar_negociacao(http, autenticar(corretor), negociacao.id, "recusada")
     assert resposta.status_code == 400
+
+
+@pytest.mark.parametrize("final", ["aceita", "recusada", "cancelada"])
+@pytest.mark.parametrize("novo", ["aberta", "contraproposta", "aceita", "recusada", "cancelada"])
+def test_negociacao_encerrada_nao_muda_de_estado(
+    http, sessao, fabrica, oportunidade, admin, autenticar, final, novo
+):
+    negociacao = fabrica.negociacao(oportunidade, status=final)
+    resposta = mudar_negociacao(
+        http, autenticar(admin), negociacao.id, novo, valor_proposto=100000
+    )
+    assert resposta.status_code == 400
+    sessao.refresh(negociacao)
+    assert negociacao.status == final
+
+
+@pytest.mark.parametrize("status", ["aceita", "recusada", "contraproposta", "cancelada"])
+def test_cliente_nao_altera_o_estado_da_negociacao(
+    http, sessao, fabrica, oportunidade, cliente, autenticar, status
+):
+    # Decisão 3 (28/10/2026): o cliente acompanha em consulta; quem regista o
+    # andamento é o corretor responsável ou o administrador.
+    negociacao = fabrica.negociacao(oportunidade)
+    resposta = mudar_negociacao(
+        http, autenticar(cliente), negociacao.id, status, valor_proposto=100000
+    )
+    assert resposta.status_code == 403
+    sessao.refresh(negociacao)
+    assert negociacao.status == "aberta"
+
+
+def test_cliente_continua_a_ver_e_a_abrir_negociacoes(http, fabrica, oportunidade, cliente, autenticar):
+    cabecalho = autenticar(cliente)
+    assert abrir_negociacao(http, cabecalho, oportunidade, valor_proposto=100000).status_code == 201
+    assert http.get(f"/negociacoes/oportunidade/{oportunidade.id}", headers=cabecalho).status_code == 200
 
 
 # ============================================================== operações

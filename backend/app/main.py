@@ -174,19 +174,32 @@ async def _rotina_enriquecimento_datas_caixa():
                 )
                 await asyncio.sleep(ESPERA_FALHA_TECNICA_DATAS)
                 continue
-            if resultado.get("aguardando_bloqueio"):
-                espera = max(60, resultado["segundos_restantes"])
+            if resultado.get("limite_diario_atingido"):
+                # Sem pedidos até ao dia seguinte (UTC); verifica de 6 em 6 h.
+                espera = min(max(60, resultado["segundos_restantes"]), 6 * 3600)
                 logger.info(
-                    "Worker de datas da CAIXA aguardará o bloqueio persistente "
-                    "expirar (%s segundos).",
+                    "Worker de datas da CAIXA: limite diário de pedidos atingido; "
+                    "nova verificação em %s segundos.",
+                    espera,
+                )
+                await asyncio.sleep(espera)
+                continue
+            if resultado.get("aguardando_bloqueio"):
+                # Paragem manual = espera sem fim: volta só a olhar de 6 em 6 h
+                # (sem contactar a CAIXA) até alguém rever e limpar o estado.
+                espera = min(max(60, resultado["segundos_restantes"]), 6 * 3600)
+                logger.info(
+                    "Worker de datas da CAIXA parado (%s); nova verificação do "
+                    "estado em %s segundos.",
+                    "revisão manual" if resultado.get("paragem_manual") else "bloqueio",
                     espera,
                 )
                 await asyncio.sleep(espera)
                 continue
             if resultado.get("bloqueado"):
                 logger.warning(
-                    "CAIXA bloqueou o worker de datas; nova tentativa em %s horas.",
-                    resultado.get("horas_espera"),
+                    "Worker de datas da CAIXA parado para revisão manual: %s.",
+                    resultado.get("paragem"),
                 )
                 continue
             logger.info(
@@ -313,7 +326,9 @@ async def lifespan(app: FastAPI):
         tarefa_datas = asyncio.create_task(_rotina_enriquecimento_datas_caixa())
 
     tarefa_fotos = None
-    if os.getenv("RADAR_ENABLE_CAIXA_PHOTO_WORKER", "1") == "1":
+    # O worker de fotos antigo abre um browser na CAIXA: só corre se for ligado
+    # de propósito. As fotos vêm agora com o worker de datas (mesma página).
+    if os.getenv("RADAR_ENABLE_CAIXA_PHOTO_WORKER", "0") == "1":
         tarefa_fotos = asyncio.create_task(_rotina_fila_fotos_caixa())
     else:
         logger.info(

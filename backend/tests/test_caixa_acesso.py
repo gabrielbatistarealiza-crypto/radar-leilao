@@ -38,6 +38,13 @@ def lock_livre():
 
 
 @pytest.fixture(autouse=True)
+def selenium_permitido_nos_testes_do_porteiro(monkeypatch):
+    # Os endpoints de fotos com browser estão desligados por omissão (410); estes
+    # testes verificam o porteiro quando alguém os liga de propósito.
+    monkeypatch.setenv("RADAR_PERMITIR_SELENIUM_CAIXA", "1")
+
+
+@pytest.fixture(autouse=True)
 def sem_pausas(monkeypatch):
     pausas = []
     monkeypatch.setattr(scraper_service.time, "sleep", lambda s: pausas.append(s))
@@ -461,6 +468,24 @@ ENDPOINTS_FOTOS = [
 
 
 @pytest.mark.parametrize("caminho, params", ENDPOINTS_FOTOS)
+def test_endpoints_de_fotos_com_browser_estao_desligados_por_omissao(
+    caminho, params, fabrica, admin_http, http, browser_falso, monkeypatch, cliente, autenticar
+):
+    monkeypatch.delenv("RADAR_PERMITIR_SELENIUM_CAIXA", raising=False)
+    imovel_caixa(fabrica, 1, pendente_fotos=True)
+    browser_falso([[]])
+
+    resposta = admin_http(caminho, **params)
+
+    assert resposta.status_code == 410
+    assert browser_falso.criados == []
+    assert not CAIXA_COLETA_LOCK.locked()
+    # A autenticação continua a correr antes: sem login 401, sem admin 403.
+    assert http.post(caminho, params=params).status_code == 401
+    assert http.post(caminho, params=params, headers=autenticar(cliente)).status_code == 403
+
+
+@pytest.mark.parametrize("caminho, params", ENDPOINTS_FOTOS)
 def test_endpoints_de_fotos_respeitam_a_espera(
     caminho, params, sessao, fabrica, admin_http, browser_falso
 ):
@@ -552,7 +577,23 @@ def test_status_das_datas_devolve_o_intervalo_configurado(sessao, monkeypatch):
     assert status_worker_datas_caixa(db=sessao, administrador=None)["intervalo_segundos"] == 120
 
     monkeypatch.delenv("RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS")
-    assert status_worker_datas_caixa(db=sessao, administrador=None)["intervalo_segundos"] == 60
+    from app.services.caixa_datas_worker import INTERVALO_PADRAO_SEGUNDOS
+
+    status = status_worker_datas_caixa(db=sessao, administrador=None)
+    assert status["intervalo_segundos"] == INTERVALO_PADRAO_SEGUNDOS
+    assert status["pedidos_hoje"] == 0 and status["limite_diario_pedidos"] == 20
+
+
+def test_status_das_datas_mostra_a_paragem_manual(sessao):
+    from app.routers.scraper import status_worker_datas_caixa
+    from app.services.caixa_datas_edital import PARAGEM_MANUAL
+
+    sessao.add(CaixaDataWorkerState(id=1, ativo=False, bloqueado_ate=PARAGEM_MANUAL))
+    sessao.commit()
+
+    status = status_worker_datas_caixa(db=sessao, administrador=None)
+
+    assert status["status"] == "PARADO" and status["paragem_manual"] is True
 
 
 def test_lote_para_no_captcha_e_grava_a_espera(sessao, fabrica, admin_http, browser_falso):

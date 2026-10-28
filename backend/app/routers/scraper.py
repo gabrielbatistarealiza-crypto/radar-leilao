@@ -11,9 +11,15 @@ from app.models.imovel import Imovel, ImovelImagem
 from app.security.auth import usuario_admin
 from app.services.scraper_service import ScraperService
 from app.services.caixa_worker_lock import CAIXA_COLETA_LOCK
-from app.services.caixa_acesso import acesso_caixa_http, registrar_bloqueio_caixa
-from app.services.caixa_datas_worker import intervalo_entre_imoveis
+from app.services.caixa_acesso import acesso_caixa_http
+from app.services.caixa_datas_worker import (
+    intervalo_entre_imoveis,
+    limite_diario_pedidos,
+    passo_manual_datas,
+    pedidos_hoje,
+)
 from app.models.caixa_data_worker_state import CaixaDataWorkerState
+from app.services.caixa_datas_edital import e_paragem_manual
 
 
 router = APIRouter()
@@ -34,9 +40,14 @@ def status_worker_datas_caixa(
     aguardando = bool(
         estado and estado.bloqueado_ate and estado.bloqueado_ate > agora
     )
+    parado = bool(estado and e_paragem_manual(estado.bloqueado_ate))
     return {
         "habilitado": habilitado,
+        "paragem_manual": parado,
         "status": (
+            # A paragem manual vale mesmo com o worker desligado: bloqueia também
+            # o ciclo manual do Admin e a importação.
+            "PARADO" if parado else
             "DESATIVADO" if not habilitado else
             "AGUARDANDO" if aguardando else
             "CONCLUIDO" if estado and not estado.ativo else
@@ -45,6 +56,8 @@ def status_worker_datas_caixa(
         "cursor_id": estado.cursor_id if estado else None,
         # Ritmo configurado no backend; o ciclo manual do Admin usa o mesmo.
         "intervalo_segundos": intervalo_entre_imoveis(),
+        "pedidos_hoje": pedidos_hoje(db, agora),
+        "limite_diario_pedidos": limite_diario_pedidos(),
         "bloqueado_ate": estado.bloqueado_ate.isoformat()
         + "Z" if estado and estado.bloqueado_ate else None,
         "atualizado_em": estado.atualizado_em.isoformat()
@@ -75,27 +88,27 @@ def atualizar_lista_caixa(
 
 @router.post("/caixa/enriquecer-datas")
 def enriquecer_datas_caixa(
-    limite: int = Query(default=3, ge=1, le=5),
+    limite: int = Query(default=1, ge=1, le=5),
     depois_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     administrador=Depends(usuario_admin),
 ):
-    """Consulta uma leva limitada de páginas da Caixa para preencher datas ausentes."""
+    """Consulta UM imóvel (e o seu edital, se ainda não lido) para preencher datas.
+
+    Usa o mesmo passo do worker automático: só requests (sem Selenium), limite
+    diário de pedidos partilhado, marca de pedido em curso e paragem manual
+    perante qualquer bloqueio. `limite` fica por compatibilidade: é sempre 1.
+    """
     # Porteiro comum: 409 se outra consulta estiver em curso (inclui outros
-    # processos em PostgreSQL), 429 durante a espera de bloqueio.
+    # processos em PostgreSQL), 429 durante a espera de bloqueio/paragem.
     with acesso_caixa_http(db, "datas-manual"):
-        resultado = ScraperService(db).enriquecer_datas_caixa(
-            limite=limite,
-            depois_id=depois_id,
+        resultado = passo_manual_datas(db, depois_id=depois_id)
+    if resultado.get("limite_diario_atingido"):
+        raise HTTPException(
+            status_code=429,
+            detail="Limite diário de pedidos à CAIXA atingido. Tente amanhã.",
         )
-        if resultado.get("bloqueado"):
-            # Mesma espera do worker automático: sem isto, quem chama o
-            # endpoint poderia continuar a insistir logo após um bloqueio.
-            resultado["horas_espera"] = registrar_bloqueio_caixa(db, "datas-manual")
-            resultado["retomar_em"] = db.get(
-                CaixaDataWorkerState, 1
-            ).bloqueado_ate.isoformat()
-        return resultado
+    return resultado
 
 
 @router.get("/caixa/status")

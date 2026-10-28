@@ -211,7 +211,10 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
                 ("Licitação aberta", imovel.data_licitacao_aberta),
             ]
             prazo = [(nome, data, _dias_ate(data)) for nome, data in datas if _dias_ate(data) is not None and 0 <= _dias_ate(data) <= criterio.alertar_prazos_dias]
-            prazo_relevante = bool(prazo)
+            # O alerta de prazo só vale para imóveis dentro dos filtros do critério
+            # (estado, cidade, preço, desconto); o ROI não conta aqui.
+            filtros_base = filtros[:-1] if criterio.roi_minimo is not None else filtros
+            prazo_relevante = bool(prazo) and all(filtros_base)
             if prazo_relevante:
                 motivos.extend([f"{nome} em {dias} dia(s) ({data.isoformat()})." for nome, data, dias in prazo])
             pendencia_custos_relevante = bool(
