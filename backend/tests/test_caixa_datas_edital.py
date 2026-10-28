@@ -314,6 +314,87 @@ def test_executar_lote_datas_passa_o_limite_de_pedidos(sessao, fabrica):
     assert r["estado_edital"] == "ADIADO_LIMITE_DE_PEDIDOS" and rede.pedidos == [(a.url, "pagina")]
 
 
+# ------------------------------------------------------------- limite diário
+
+def pedidos_do_dia(sessao, dia):
+    from app.models.caixa_pedidos_dia import CaixaPedidosDia
+
+    sessao.expire_all()
+    linha = sessao.get(CaixaPedidosDia, dia)
+    return linha.pedidos if linha else 0
+
+
+def test_limite_diario_para_o_worker_sem_pedir(sessao, fabrica, monkeypatch):
+    monkeypatch.setenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", "3")
+    imoveis = [imovel(fabrica, n) for n in (N1, N2, N3, N4)]
+    rede = Rede({i.url: pagina(edital=None) for i in imoveis})
+    agora = datetime(2026, 10, 29, 10, 0, 0)
+
+    for _ in range(3):
+        assert worker.processar_lote_datas_caixa(sessao, agora=agora, pedir=rede)["pedidos"] == 1
+    r = worker.processar_lote_datas_caixa(sessao, agora=agora, pedir=rede)
+
+    assert r["limite_diario_atingido"] is True and r["pedidos"] == 0
+    assert r["segundos_restantes"] == 14 * 3600  # até à meia-noite UTC
+    assert len(rede.pedidos) == 3 and pedidos_do_dia(sessao, agora.date()) == 3
+    assert estado(sessao).bloqueado_ate is None and estado(sessao).cursor_id == imoveis[2].id
+
+    # No dia seguinte volta a poder pedir.
+    amanha = datetime(2026, 10, 30, 0, 1, 0)
+    assert worker.processar_lote_datas_caixa(sessao, agora=amanha, pedir=rede)["pedidos"] == 1
+
+
+def test_limite_diario_adia_o_edital_quando_so_resta_um_pedido(sessao, fabrica, monkeypatch):
+    monkeypatch.setenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", "1")
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    rede = Rede({a.url: pagina(D1, D2)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    assert r["estado_edital"] == "ADIADO_LIMITE_DE_PEDIDOS" and rede.pedidos == [(a.url, "pagina")]
+
+
+def test_pedido_e_contado_antes_de_ser_feito(sessao, fabrica):
+    a = imovel(fabrica, N1)
+    agora = datetime(2026, 10, 29, 10, 0, 0)
+    vistos = []
+
+    def pedir(url, tipo):
+        vistos.append(pedidos_do_dia(sessao, agora.date()))
+        raise RuntimeError("o processo caiu a meio do pedido")
+
+    with pytest.raises(RuntimeError):
+        worker.processar_lote_datas_caixa(sessao, agora=agora, pedir=pedir)
+    assert vistos == [1] and pedidos_do_dia(sessao, agora.date()) == 1
+
+
+@pytest.mark.parametrize("valor, esperado", [
+    (None, worker.MAX_PEDIDOS_DIA_PADRAO), ("", worker.MAX_PEDIDOS_DIA_PADRAO), ("5", 5),
+    ("0", 0), ("-3", 0), ("99999", worker.MAX_PEDIDOS_DIA_TETO), ("muitos", worker.MAX_PEDIDOS_DIA_PADRAO),
+])
+def test_limite_diario_configuravel(monkeypatch, valor, esperado):
+    if valor is None:
+        monkeypatch.delenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", raising=False)
+    else:
+        monkeypatch.setenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", valor)
+    assert worker.limite_diario_pedidos() == esperado
+
+
+def test_limite_zero_nunca_pede(sessao, fabrica, monkeypatch):
+    monkeypatch.setenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", "0")
+    a = imovel(fabrica, N1)
+    rede = Rede({})
+    assert worker.processar_lote_datas_caixa(sessao, pedir=rede)["limite_diario_atingido"] is True
+    assert rede.pedidos == []
+
+
+def test_ritmo_padrao_de_producao_e_lento(monkeypatch):
+    monkeypatch.delenv("RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS", raising=False)
+    assert worker.intervalo_entre_imoveis() == 600
+    monkeypatch.setenv("RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS", "5")
+    assert worker.intervalo_entre_imoveis() == 60
+
+
 # ------------------------------------------------------------------ pedir_caixa
 
 class RespostaHttpFalsa:

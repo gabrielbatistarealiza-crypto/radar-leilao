@@ -174,6 +174,16 @@ async def _rotina_enriquecimento_datas_caixa():
                 )
                 await asyncio.sleep(ESPERA_FALHA_TECNICA_DATAS)
                 continue
+            if resultado.get("limite_diario_atingido"):
+                # Sem pedidos até ao dia seguinte (UTC); verifica de 6 em 6 h.
+                espera = min(max(60, resultado["segundos_restantes"]), 6 * 3600)
+                logger.info(
+                    "Worker de datas da CAIXA: limite diário de pedidos atingido; "
+                    "nova verificação em %s segundos.",
+                    espera,
+                )
+                await asyncio.sleep(espera)
+                continue
             if resultado.get("aguardando_bloqueio"):
                 # Paragem manual = espera sem fim: volta só a olhar de 6 em 6 h
                 # (sem contactar a CAIXA) até alguém rever e limpar o estado.

@@ -14,7 +14,10 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+from types import SimpleNamespace
+
 from app.models.caixa_data_worker_state import CaixaDataWorkerState
+from app.models.caixa_pedidos_dia import CaixaPedidosDia
 from app.models.imovel import Imovel
 from app.services.caixa_datas_edital import (
     PARAGEM_MANUAL,
@@ -27,8 +30,49 @@ logger = logging.getLogger(__name__)
 
 # Pausa entre dois imóveis consultados pelo worker. Configurável por
 # RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS; abaixo do mínimo usa o mínimo.
-INTERVALO_PADRAO_SEGUNDOS = 60
-INTERVALO_MINIMO_SEGUNDOS = 10
+# Em produção a página de imóvel foi travada pelo Radware com 62 s entre
+# pedidos: o padrão é lento de propósito.
+INTERVALO_PADRAO_SEGUNDOS = 600
+INTERVALO_MINIMO_SEGUNDOS = 60
+
+# Máximo de pedidos (páginas + editais) por dia UTC, para o worker e o
+# endpoint manual juntos. Configurável por RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA.
+MAX_PEDIDOS_DIA_PADRAO = 20
+MAX_PEDIDOS_DIA_TETO = 1000
+
+
+def limite_diario_pedidos() -> int:
+    valor = os.getenv("RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA", "").strip()
+    if not valor:
+        return MAX_PEDIDOS_DIA_PADRAO
+    try:
+        return min(MAX_PEDIDOS_DIA_TETO, max(0, int(float(valor))))
+    except ValueError:
+        logger.warning(
+            "RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA inválido (%r); a usar %s.",
+            valor,
+            MAX_PEDIDOS_DIA_PADRAO,
+        )
+        return MAX_PEDIDOS_DIA_PADRAO
+
+
+def pedidos_hoje(db, agora: datetime) -> int:
+    linha = db.get(CaixaPedidosDia, agora.date())
+    return (linha.pedidos or 0) if linha else 0
+
+
+def _contar_pedido(db, agora: datetime) -> None:
+    """Soma 1 ao dia (sem commit: quem chama faz commit ANTES do pedido)."""
+    linha = db.get(CaixaPedidosDia, agora.date())
+    if linha is None:
+        linha = CaixaPedidosDia(dia=agora.date(), pedidos=0)
+        db.add(linha)
+    linha.pedidos = (linha.pedidos or 0) + 1
+
+
+def _segundos_ate_amanha(agora: datetime) -> int:
+    amanha = datetime.combine(agora.date() + timedelta(days=1), datetime.min.time())
+    return max(1, int((amanha - agora).total_seconds()))
 
 
 def intervalo_entre_imoveis() -> int:
@@ -99,6 +143,100 @@ def reativar_worker_datas_caixa(db) -> None:
     estado.atualizado_em = datetime.utcnow()
 
 
+def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor_na_paragem):
+    """Passo comum ao worker e ao endpoint manual.
+
+    `cursor` é o estado do worker ou um cursor próprio do endpoint manual.
+    Aplica o limite diário, conta cada pedido e grava a marca de "pedido em
+    curso" (com commit) ANTES de cada GET, e trata a paragem manual.
+    """
+    restantes = limite_diario_pedidos() - pedidos_hoje(db, agora)
+    if restantes <= 0:
+        return {"limite_diario_atingido": True, "pedidos": 0,
+                "segundos_restantes": _segundos_ate_amanha(agora)}
+
+    def marcar_pedido_em_curso(imovel_id: int) -> None:
+        # Gravada (commit) ANTES de cada GET e só retirada depois de gravar o
+        # resultado: se o processo morrer a meio, a próxima execução encontra a
+        # paragem manual e não repete o pedido. O pedido fica já contado.
+        _contar_pedido(db, agora)
+        estado.bloqueado_ate = PARAGEM_MANUAL
+        estado.atualizado_em = agora
+        db.commit()
+
+    try:
+        resultado = processar_passo(
+            db, cursor, pedir=pedir, max_pedidos=min(max_pedidos, restantes),
+            antes_de_pedir=marcar_pedido_em_curso,
+        )
+    except Exception:
+        # Resultado desconhecido: a marca (se já gravada) fica e tudo
+        # permanece parado até revisão manual.
+        db.rollback()
+        raise
+
+    if "paragem" in resultado:
+        # As datas lidas da própria página (se houver) ficam; do edital nada foi
+        # gravado. Tudo fica parado até revisão manual.
+        registrar_paragem_manual(
+            estado, agora, resultado.get("imovel_id") if recuar_cursor_na_paragem else None
+        )
+        resultado.update(bloqueado=True, paragem_manual=True)
+        logger.warning(
+            "Datas da CAIXA PARADAS para revisão manual: %s (imóvel %s).",
+            resultado["paragem"],
+            resultado.get("imovel_id"),
+        )
+    elif not resultado.get("concluido"):
+        estado.bloqueios_consecutivos = 0
+        estado.bloqueado_ate = None  # retira a marca de pedido em curso
+    return resultado
+
+
+def passo_manual_datas(db, depois_id: int | None = None, pedir=None,
+                       agora: datetime | None = None) -> dict:
+    """Um imóvel a partir de `depois_id`, para o ciclo manual do painel Admin.
+
+    Usa o mesmo passo do worker (só requests, limite diário, marca antes de
+    cada pedido, paragem manual), sem mexer no cursor do worker. Devolve o
+    formato antigo do endpoint (processados, atualizados, tem_mais, ...).
+    """
+    agora = agora or datetime.utcnow()
+    estado = _obter_estado(db)
+    db.commit()
+    cursor = SimpleNamespace(cursor_id=depois_id)
+    r = _executar_passo(db, estado, cursor, agora, pedir, 2, recuar_cursor_na_paragem=False)
+    if r.get("limite_diario_atingido"):
+        return r
+
+    imovel_id = r.get("imovel_id")
+    tem_mais = bool(
+        imovel_id is not None and "paragem" not in r
+        and db.query(Imovel.id).filter(filtro_pendentes(), Imovel.id > imovel_id).first()
+    )
+    if "paragem" in r:
+        status = "BLOQUEADO_CAIXA"
+    else:
+        status = "ATUALIZADO" if r.get("atualizados") else "SEM_DATAS_NOVAS"
+    estado.atualizado_em = agora
+    db.commit()
+    return {
+        "processados": r.get("processados", 0),
+        "atualizados": r.get("atualizados", 0),
+        "sem_dados_novos": int(bool(imovel_id) and not r.get("atualizados") and "paragem" not in r),
+        "erros": 0,
+        "falhas_tecnicas": 0,
+        "falha_tecnica": False,
+        "falha_tecnica_id": None,
+        "bloqueado": "paragem" in r,
+        "paragem": r.get("paragem"),
+        "pedidos": r.get("pedidos", 0),
+        "tem_mais": tem_mais,
+        "proximo_depois_id": imovel_id if tem_mais else None,
+        "resultados": [{"id": imovel_id, "status": status}] if imovel_id else [],
+    }
+
+
 def processar_lote_datas_caixa(
     db, agora: datetime | None = None, pedir=None, max_pedidos: int = 2
 ) -> dict:
@@ -127,41 +265,17 @@ def processar_lote_datas_caixa(
             "pedidos": 0,
         }
 
-    def marcar_pedido_em_curso(imovel_id: int) -> None:
-        # Gravada (commit) ANTES de cada GET e só retirada depois de gravar o
-        # resultado: se o processo morrer a meio, a próxima execução encontra a
-        # paragem manual e não repete o pedido.
-        estado.bloqueado_ate = PARAGEM_MANUAL
-        estado.atualizado_em = agora
-        db.commit()
-
-    try:
-        resultado = processar_passo(
-            db, estado, pedir=pedir, max_pedidos=max_pedidos,
-            antes_de_pedir=marcar_pedido_em_curso,
-        )
-    except Exception:
-        # Resultado desconhecido: a marca (se já gravada) fica e o worker
-        # permanece parado até revisão manual.
-        db.rollback()
-        raise
+    resultado = _executar_passo(db, estado, estado, agora, pedir, max_pedidos,
+                                recuar_cursor_na_paragem=True)
+    if resultado.get("limite_diario_atingido"):
+        return resultado
 
     if "paragem" in resultado:
-        # As datas lidas da própria página (se houver) ficam; do edital nada foi
-        # gravado. O worker fica parado até revisão manual.
-        registrar_paragem_manual(estado, agora, resultado.get("imovel_id"))
-        resultado.update(bloqueado=True, paragem_manual=True)
-        logger.warning(
-            "Worker de datas da CAIXA PARADO para revisão manual: %s (imóvel %s).",
-            resultado["paragem"],
-            resultado.get("imovel_id"),
-        )
+        pass  # paragem manual já gravada por _executar_passo
     elif resultado.get("concluido"):
         estado.cursor_id = None
         estado.ativo = False
     else:
-        estado.bloqueios_consecutivos = 0
-        estado.bloqueado_ate = None  # retira a marca de pedido em curso
         estado.cursor_id = resultado["imovel_id"]
         resultado["tem_mais"] = bool(
             db.query(Imovel.id)

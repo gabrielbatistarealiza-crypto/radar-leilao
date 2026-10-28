@@ -66,7 +66,8 @@ def travar_selenium() -> None:
 def resumo_da_volta(resultado: dict) -> dict:
     chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "edital", "estado_edital",
               "membros_na_base", "sem_venda_na_base", "preenchidos_pelo_edital", "paragem", "destino", "imovel_incoerente",
-              "concluido", "aguardando_bloqueio", "paragem_manual", "ocupado", "tem_mais")
+              "concluido", "aguardando_bloqueio", "paragem_manual", "ocupado", "tem_mais",
+              "limite_diario_atingido")
     return {k: resultado[k] for k in chaves if k in resultado}
 
 
@@ -132,6 +133,12 @@ def main() -> int:
             db.rollback()
             return 0
 
+        # A app cria as tabelas ao arrancar; este comando não arranca a app, por
+        # isso cria aqui (só na cópia, se faltar) a tabela do limite diário.
+        from app.models.caixa_pedidos_dia import CaixaPedidosDia
+
+        CaixaPedidosDia.__table__.create(bind=motor, checkfirst=True)
+
         momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         registo = Path(args.registo or f"registo_datas_caixa_{momento}_{os.getpid()}.jsonl")
         pedidos = 0
@@ -148,7 +155,8 @@ def main() -> int:
                 f.flush()
                 os.fsync(f.fileno())
                 print(json.dumps(linha, ensure_ascii=False, default=str))
-                if any(resultado.get(k) for k in ("paragem", "aguardando_bloqueio", "concluido", "ocupado")):
+                if any(resultado.get(k) for k in ("paragem", "aguardando_bloqueio", "concluido", "ocupado",
+                                                  "limite_diario_atingido")):
                     break
                 if volta < args.voltas:
                     time.sleep(args.intervalo)

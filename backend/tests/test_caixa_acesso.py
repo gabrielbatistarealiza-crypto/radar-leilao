@@ -552,7 +552,11 @@ def test_status_das_datas_devolve_o_intervalo_configurado(sessao, monkeypatch):
     assert status_worker_datas_caixa(db=sessao, administrador=None)["intervalo_segundos"] == 120
 
     monkeypatch.delenv("RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS")
-    assert status_worker_datas_caixa(db=sessao, administrador=None)["intervalo_segundos"] == 60
+    from app.services.caixa_datas_worker import INTERVALO_PADRAO_SEGUNDOS
+
+    status = status_worker_datas_caixa(db=sessao, administrador=None)
+    assert status["intervalo_segundos"] == INTERVALO_PADRAO_SEGUNDOS
+    assert status["pedidos_hoje"] == 0 and status["limite_diario_pedidos"] == 20
 
 
 def test_lote_para_no_captcha_e_grava_a_espera(sessao, fabrica, admin_http, browser_falso):
