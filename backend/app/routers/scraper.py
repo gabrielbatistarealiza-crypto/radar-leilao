@@ -19,6 +19,7 @@ from app.services.caixa_datas_worker import (
     pedidos_hoje,
 )
 from app.models.caixa_data_worker_state import CaixaDataWorkerState
+from app.services.caixa_datas_edital import e_paragem_manual
 
 
 router = APIRouter()
@@ -39,9 +40,14 @@ def status_worker_datas_caixa(
     aguardando = bool(
         estado and estado.bloqueado_ate and estado.bloqueado_ate > agora
     )
+    parado = bool(estado and e_paragem_manual(estado.bloqueado_ate))
     return {
         "habilitado": habilitado,
+        "paragem_manual": parado,
         "status": (
+            # A paragem manual vale mesmo com o worker desligado: bloqueia também
+            # o ciclo manual do Admin e a importação.
+            "PARADO" if parado else
             "DESATIVADO" if not habilitado else
             "AGUARDANDO" if aguardando else
             "CONCLUIDO" if estado and not estado.ativo else

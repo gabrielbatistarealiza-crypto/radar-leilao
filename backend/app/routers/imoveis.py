@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import os
 
 import re
 
@@ -55,6 +56,17 @@ def _porteiro_caixa(origem: str):
         administrador=Depends(usuario_admin),
         db: Session = Depends(get_db),
     ):
+        # Estes endpoints abrem um browser (Selenium/Playwright) na CAIXA. As
+        # fotos passaram a vir da própria página lida pelo worker de datas (só
+        # requests). Ficam desligados salvo decisão explícita de os usar.
+        if os.getenv("RADAR_PERMITIR_SELENIUM_CAIXA") != "1":
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    "Coleta de fotos com browser desativada. As fotos são "
+                    "recolhidas pelo worker de datas, na mesma consulta da página."
+                ),
+            )
         with acesso_caixa_http(db, origem):
             yield
 

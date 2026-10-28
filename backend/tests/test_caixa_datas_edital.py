@@ -314,6 +314,60 @@ def test_executar_lote_datas_passa_o_limite_de_pedidos(sessao, fabrica):
     assert r["estado_edital"] == "ADIADO_LIMITE_DE_PEDIDOS" and rede.pedidos == [(a.url, "pagina")]
 
 
+# --------------------------------------------------------------- fotos
+
+GALERIA = (
+    b"<div id='galeria-imagens'><h2>Galeria de fotos</h2>"
+    b"<img onclick='preview.src=\"/fotos/F1.jpg\"' src='/fotos/F1.jpg' alt='Foto do im\xc3\xb3vel'>"
+    b"<img onclick='preview.src=\"/fotos/F2.jpg\"' src='/fotos/F2.jpg'>"
+    b"<img id='preview' src='/fotos/F1.jpg'></div>"
+    b"<img src='/imagens/logo.png'>"
+)
+
+
+def test_fotos_da_galeria_sao_gravadas_na_mesma_consulta(sessao, fabrica):
+    from app.models.imovel import ImovelFotoVerificacao, ImovelImagem
+
+    a = imovel(fabrica, N1)
+    rede = Rede({a.url: pagina(D1, D2, edital=None) + GALERIA})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    urls = [i.url for i in sessao.query(ImovelImagem).filter_by(imovel_id=a.id).order_by(ImovelImagem.ordem)]
+    assert urls == ["https://venda-imoveis.caixa.gov.br/fotos/F1.jpg",
+                    "https://venda-imoveis.caixa.gov.br/fotos/F2.jpg"]
+    assert sessao.query(ImovelFotoVerificacao).filter_by(imovel_id=a.id).one().resultado == "COM_FOTOS"
+    assert r["fotos"] == 2 and r["fotos_novas"] == 2 and len(rede.pedidos) == 1
+
+
+def test_fotos_existentes_nao_sao_duplicadas(sessao, fabrica):
+    from app.models.imovel import ImovelImagem
+
+    a = imovel(fabrica, N1)
+    fabrica.foto(a, "https://venda-imoveis.caixa.gov.br/fotos/F1.jpg", ordem=0)
+    rede = Rede({a.url: pagina(D1, D2, edital=None) + GALERIA})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    assert r["fotos_novas"] == 1
+    assert sessao.query(ImovelImagem).filter_by(imovel_id=a.id).count() == 2
+
+
+def test_pagina_sem_galeria_nao_mexe_nas_fotos(sessao, fabrica):
+    from app.models.imovel import ImovelFotoVerificacao, ImovelImagem
+
+    a = imovel(fabrica, N1)
+    sessao.add(ImovelFotoVerificacao(imovel_id=a.id, resultado="PENDENTE"))
+    sessao.commit()
+    rede = Rede({a.url: pagina(D1, D2, edital=None)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    sessao.expire_all()
+    assert r["fotos"] == 0 and sessao.query(ImovelImagem).count() == 0
+    assert sessao.query(ImovelFotoVerificacao).filter_by(imovel_id=a.id).one().resultado == "PENDENTE"
+
+
 # ------------------------------------------------------------- limite diário
 
 def pedidos_do_dia(sessao, dia):

@@ -6,7 +6,36 @@ import {
   aguardarComParagem,
   avaliarLote,
   intervaloDoStatus,
+  mensagemStatusWorker,
 } from "./ritmoEnriquecimentoCaixa";
+
+describe("mensagem do estado do worker de datas", () => {
+  it("mostra a paragem manual e os pedidos do dia", () => {
+    const texto = mensagemStatusWorker({
+      status: "PARADO", paragem_manual: true, pedidos_hoje: 3, limite_diario_pedidos: 20,
+    });
+    expect(texto).toContain("paradas para revisão manual");
+    expect(texto).toContain("3 de 20");
+  });
+
+  it("paragem manual ganha a qualquer outro estado", () => {
+    expect(mensagemStatusWorker({ status: "DESATIVADO", paragem_manual: true })).toContain(
+      "revisão manual"
+    );
+  });
+
+  it.each([
+    ["ATIVO", "Worker automático ativo."],
+    ["CONCLUIDO", "Fila atual concluída."],
+    ["DESATIVADO", "Worker automático desativado."],
+  ])("estado %s", (status, esperado) => {
+    expect(mensagemStatusWorker({ status })).toBe(esperado);
+  });
+
+  it("sem estado não mostra nada", () => {
+    expect(mensagemStatusWorker(null)).toBe("");
+  });
+});
 
 describe("ritmo do ciclo manual de datas", () => {
   it("consulta um imóvel por pedido", () => {

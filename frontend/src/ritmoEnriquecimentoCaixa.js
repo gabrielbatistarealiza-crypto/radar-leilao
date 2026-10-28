@@ -6,8 +6,34 @@
 // devolvido por GET /caixa/enriquecer-datas/status).
 
 export const LIMITE_POR_PEDIDO = 1;
-export const INTERVALO_PADRAO_SEGUNDOS = 60;
-export const INTERVALO_MINIMO_SEGUNDOS = 10;
+// Iguais ao backend (caixa_datas_worker): 600 s por omissão, nunca abaixo de 60 s.
+export const INTERVALO_PADRAO_SEGUNDOS = 600;
+export const INTERVALO_MINIMO_SEGUNDOS = 60;
+
+// Texto do estado do worker de datas devolvido por GET /caixa/enriquecer-datas/status.
+export function mensagemStatusWorker(status) {
+  if (!status) return "";
+  const pedidos =
+    Number.isFinite(Number(status.limite_diario_pedidos))
+      ? ` Pedidos à CAIXA hoje: ${Number(status.pedidos_hoje || 0)} de ${Number(status.limite_diario_pedidos)}.`
+      : "";
+  if (status.status === "PARADO" || status.paragem_manual) {
+    return (
+      "Consultas à CAIXA paradas para revisão manual, depois de um bloqueio ou " +
+      "de uma resposta inesperada. Nada é pedido até alguém rever e limpar o estado." +
+      pedidos
+    );
+  }
+  if (status.status === "AGUARDANDO") {
+    const ate = status.bloqueado_ate
+      ? ` até ${new Date(status.bloqueado_ate).toLocaleString("pt-BR")}`
+      : "";
+    return `Worker aguardando a CAIXA liberar o acesso${ate}.${pedidos}`;
+  }
+  if (status.status === "ATIVO") return `Worker automático ativo.${pedidos}`;
+  if (status.status === "CONCLUIDO") return `Fila atual concluída.${pedidos}`;
+  return `Worker automático desativado.${pedidos}`;
+}
 
 // Lê o intervalo do status do backend; valores ausentes ou inválidos usam o
 // padrão e nunca se desce abaixo do mínimo.

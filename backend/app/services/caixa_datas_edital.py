@@ -160,6 +160,41 @@ def _bloqueio_no_html(corpo: bytes) -> str | None:
 
 # -------------------------------------------------------------- leitura (sem rede)
 
+def ler_fotos(corpo: bytes, url_pagina: str) -> list[str]:
+    """URLs absolutos das fotos da galeria (/fotos/...) na página do imóvel."""
+    from app.scrapers.caixa import CaixaScraper
+
+    pagina = BeautifulSoup(corpo.decode("utf-8", errors="replace"), "html.parser")
+    return CaixaScraper._extrair_imagens_da_pagina(pagina, url_pagina)
+
+
+def _gravar_fotos(db, imovel, fotos: list[str]) -> int:
+    """Acrescenta as fotos que faltam e marca a verificação como COM_FOTOS.
+
+    Só é chamada com pelo menos uma foto: uma página sem galeria nunca apaga
+    nem desclassifica fotos já gravadas. Devolve quantas fotos são novas.
+    """
+    from app.models.imovel import ImovelFotoVerificacao, ImovelImagem
+
+    existentes = {
+        url for (url,) in db.query(ImovelImagem.url).filter(ImovelImagem.imovel_id == imovel.id)
+    }
+    novas = [f for f in fotos if f not in existentes]
+    inicio = len(existentes)
+    for deslocamento, url in enumerate(novas):
+        db.add(ImovelImagem(imovel_id=imovel.id, url=url, ordem=inicio + deslocamento))
+    verificacao = (
+        db.query(ImovelFotoVerificacao).filter(ImovelFotoVerificacao.imovel_id == imovel.id).first()
+    )
+    if verificacao is None:
+        db.add(ImovelFotoVerificacao(imovel_id=imovel.id, resultado="COM_FOTOS",
+                                     verificado_em=datetime.utcnow()))
+    elif verificacao.resultado != "COM_FOTOS":
+        verificacao.resultado = "COM_FOTOS"
+        verificacao.verificado_em = datetime.utcnow()
+    return len(novas)
+
+
 def ler_pagina(corpo: bytes) -> tuple[tuple, str | None]:
     """Datas (1.º, 2.º, licitação aberta) e o URL do edital, se for único."""
     from app.scrapers.caixa import CaixaScraper
@@ -321,6 +356,10 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
             alterou = True
     resultado["atualizados"] = int(alterou)
     resultado["datas_da_pagina"] = [d.isoformat() if d else None for d in datas]
+    # Fotos da galeria na mesma página: nenhum pedido extra.
+    fotos = ler_fotos(resposta.corpo, imovel.url)
+    resultado["fotos"] = len(fotos)
+    resultado["fotos_novas"] = _gravar_fotos(db, imovel, fotos) if fotos else 0
     resultado["edital"] = link
     db.flush()
 

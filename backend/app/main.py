@@ -326,7 +326,9 @@ async def lifespan(app: FastAPI):
         tarefa_datas = asyncio.create_task(_rotina_enriquecimento_datas_caixa())
 
     tarefa_fotos = None
-    if os.getenv("RADAR_ENABLE_CAIXA_PHOTO_WORKER", "1") == "1":
+    # O worker de fotos antigo abre um browser na CAIXA: só corre se for ligado
+    # de propósito. As fotos vêm agora com o worker de datas (mesma página).
+    if os.getenv("RADAR_ENABLE_CAIXA_PHOTO_WORKER", "0") == "1":
         tarefa_fotos = asyncio.create_task(_rotina_fila_fotos_caixa())
     else:
         logger.info(
