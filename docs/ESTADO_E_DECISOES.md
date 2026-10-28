@@ -1,7 +1,9 @@
 # Radar Leilão: estado atual, decisões em aberto e deploy
 
-_Atualizado em 26/10/2026. Em produção: API no commit `0e84870` (PR #5) e site no
-`f17d4a0` (PR #3), com as rotinas automáticas da Caixa desligadas (secção 7)._
+_Atualizado em 28/10/2026. Em produção: API no commit `0e84870` (PR #5) e site no
+`8463dee` (PR #7), com as rotinas automáticas da Caixa desligadas (secção 7). O branch
+local `feat/worker-datas-edital` (sem push) tem o worker novo da Caixa e as correções das
+decisões 2, 3, 5 e 6 (secções 2, 3 e 9)._
 
 Este documento substitui o `LEIA-ME-PRIMEIRO.md` e o `INTEGRACAO.md`, que eram notas de
 entrega de um pacote antigo. **Não sigas as instruções de "copiar por cima" desses
@@ -47,34 +49,52 @@ Notas:
 
 ## 2. Acesso à Caixa (porteiro)
 
+No branch `feat/worker-datas-edital` (ainda não em produção):
+
 - Todas as rotinas e endpoints que contactam a Caixa passam por
   `app/services/caixa_acesso.py`: lock do processo, lock consultivo PostgreSQL entre
-  processos e espera de bloqueio guardada na tabela `caixa_data_worker_state`.
-- Ao primeiro CAPTCHA, a espera é gravada (12 h, 24 h, 48 h, até 72 h) e nada mais é
-  consultado até ela expirar. Os endpoints respondem 409 (outra consulta em curso) ou
-  429 (em espera); sem login respondem 401/403.
-- O download das listas pára ao primeiro CAPTCHA e repõe o CSV anterior de cada UF.
-- Estado do worker de datas: `GET /caixa/enriquecer-datas/status` (admin).
+  processos e espera guardada em `caixa_data_worker_state.bloqueado_ate`.
+- **Só `requests`, nunca browser.** Um GET por URL, sem novas tentativas, sem seguir
+  redirecionamentos, sem proxy do ambiente; o estado HTTP decide antes do corpo (3xx, 403
+  e 429 param sem o ler). CAPTCHA/Radware só se detetam no conteúdo, depois de o ler.
+- **Paragem manual.** Qualquer bloqueio ou resposta inesperada grava
+  `bloqueado_ate = 9999-12-31`: todas as rotinas da Caixa (datas, lista, fotos, endpoints)
+  ficam paradas até alguém rever. Antes de cada pedido essa marca é gravada (com commit) e
+  só é retirada depois de gravar o resultado: um processo que morra a meio nunca leva a
+  repetir o pedido. Para retomar, depois de rever: `bloqueado_ate = NULL` e `ativo = true`
+  na linha 1 de `caixa_data_worker_state`.
+- **Worker de datas** (`caixa_datas_worker.py` + `caixa_datas_edital.py`): em cada volta
+  lê a página de um imóvel pendente e grava as datas e as **fotos da galeria** que ela
+  mostra; se o edital dessa página ainda não foi lido, descarrega o PDF e preenche os
+  imóveis à venda do Anexo II (números de 8 a 13 dígitos; lotes `ANULADO`/`Arrematado`
+  não recebem datas). Só aplica o edital se tudo conferir.
+- **Limite diário** de pedidos de datas (UTC), contado antes de cada pedido na tabela
+  `caixa_pedidos_dia`, partilhado pelo worker e pelo endpoint manual do Admin.
+- **Lista de imóveis** (`caixa_lista_segura.py`): 1 GET por UF a
+  `listaweb/Lista_imoveis_{UF}.csv`, pausa entre UFs, o CSV anterior fica em
+  `dados/_anterior/`. A remoção de imóveis ausentes só corre com as 27 UFs da mesma data
+  de geração e nunca acima de max(50, 5 %) de uma vez.
+- Os endpoints de fotos com browser (`/imoveis/manutencao/...`) respondem **410** salvo
+  `RADAR_PERMITIR_SELENIUM_CAIXA=1`. O worker de fotos antigo só corre com
+  `RADAR_ENABLE_CAIXA_PHOTO_WORKER=1`.
+- Comandos só para a cópia local (`arremata_copia:5433`, confirmada na ligação):
+  `scripts/datas_caixa_copia.py` e `scripts/lista_caixa_copia.py` (ensaio por omissão).
 - Os scripts soltos em `backend/` que contactam a Caixa estão desativados por uma guarda.
   Só correm com `RADAR_PERMITIR_SCRIPT_LEGADO=1` definido nessa execução (nunca no `.env`).
 
-Próximos passos (por fazer):
-1. Repouso sem pedidos à Caixa a partir do IP local e do IP do Render. O do Render pode
-   estar marcado desde 24/10/2026, 06:00 (Lisboa): o worker de fotos antigo abriu 46
-   páginas da Caixa nesse dia (secção 8).
-2. Sonda única de leitura: uma página de detalhe e a página de download, guardando o
-   HTML desta para validar a deteção de CAPTCHA contra a página real.
-3. Teste de tolerância: 1 pedido de 15 em 15 min, no máximo 4, parando ao primeiro CAPTCHA.
-4. Primeira execução numa cópia da base, antes de atualizar os cerca de 3.700 imóveis sem datas.
+O histórico dos pedidos reais feitos à Caixa e os seus resultados está na secção 9.
 
 ## 3. Decisões em aberto (confirmadas no código em 24/10/2026)
 
 1. **Ocupação e FGTS sem fonte.** O CSV só traz Financiamento. Ficam `NULL` e a app não
    os mostra.
-2. **Negociação sem regras de transição.** É possível recusar ou reabrir uma negociação
-   aceite. Teste `xfail`: `test_negociacao_aceita_nao_deveria_voltar_para_recusada`.
-3. **O cliente pode aceitar a própria negociação.** `PATCH /negociacoes/{id}/status` só
-   verifica o acesso à oportunidade, não o papel de quem altera.
+2. **Resolvida no branch (28/10/2026): transições de negociação.** Uma negociação
+   `aceita`, `recusada` ou `cancelada` já não muda de estado (400). Para negociar de novo
+   abre-se outra negociação.
+3. **Resolvida no branch (28/10/2026): papel de quem altera a negociação.**
+   `PATCH /negociacoes/{id}/status` só é aceite do corretor responsável ou do
+   administrador (403 para o cliente), como o site já mostrava ("modo de consulta"). O
+   cliente continua a poder abrir e ver negociações.
 4. **Resolvida a 26/10/2026 (PR #5, `0e84870`): limite de tentativas de login.** O
    `POST /login` bloqueia um e-mail depois de 5 tentativas falhadas em 15 minutos (429 com
    `Retry-After`, a mesma resposta exista ou não a conta), procura a conta sem distinguir
@@ -83,19 +103,25 @@ Próximos passos (por fazer):
    confirmado pelo utilizador. Limitações: o contador é em memória e volta a zero
    em cada deploy ou reinício da API; quem conheça um e-mail pode bloqueá-lo até 15
    minutos; o registo de contas ainda guarda o e-mail como foi escrito.
-5. **O alerta de prazo dispara fora dos filtros do critério** (estado, desconto, etc.).
-   Teste `xfail`: `test_prazo_proximo_nao_deveria_alertar_imovel_fora_dos_filtros`.
-6. **A importação só traz "Leilão SFI - Edital Único"**, comparando o texto exato. Se a
-   Caixa mudar o rótulo, passa a trazer 0 imóveis (a limpeza não apaga nada nesse caso).
+5. **Resolvida no branch (28/10/2026): alerta de prazo.** Só vale para imóveis dentro dos
+   filtros do critério (estado, cidade, preço, desconto); o ROI não conta aqui. As
+   notificações de prazo seguem a mesma regra.
+6. **Resolvida no branch (28/10/2026): rótulo da modalidade.** A importação continua a
+   trazer só "Leilão SFI - Edital Único", mas a comparação ignora acentos, maiúsculas,
+   travessões e espaços, e grava sempre o rótulo canónico. Com os 27 CSV de 21/10 o
+   número de imóveis lidos não mudou (4.054).
 7. **O texto jurídico da consultoria** (`SYSTEM_BASE` em `consultoria_core.py`) ainda tem
    de ser revisto por um advogado de direito imobiliário.
 8. **O limite de uso da consultoria** (20 perguntas a cada 10 min por pessoa) é em
    memória e conta à parte em cada processo.
 9. **A consultoria envia o histórico** (últimas 10 mensagens) mas não os dados do imóvel.
    É uma decisão já tomada; o custo por pergunta é maior.
-10. **Código sem uso:** `consultoria_edital.py` (precisa de `pypdf`; nenhum dos dois está
-    commitado) e os componentes `AnunciosCorretor.jsx` e `AnunciosPublicos.jsx`
-    (commitados, mas não ligados à interface).
+10. **Código sem uso:** `consultoria_edital.py` (local, não commitado; o `pypdf` de que
+    precisa já está no `requirements.txt` do branch, porque o worker lê os editais) e os
+    componentes `AnunciosCorretor.jsx` e `AnunciosPublicos.jsx` (commitados, mas não
+    ligados à interface). No backend, o caminho antigo das datas com Selenium
+    (`ScraperService.enriquecer_datas_caixa`) e o `CaixaDownloader` com Selenium ficaram
+    sem uso na aplicação; só os testes os chamam.
 
 ## 4. Variáveis de ambiente
 
@@ -105,10 +131,13 @@ Próximos passos (por fazer):
 | `SECRET_KEY` | obrigatória | assinatura dos tokens |
 | `RADAR_CORS_ORIGINS` | vazio | origens extra, separadas por vírgulas (o `localhost:5173` já é aceite); no Render: `https://radar-leilao-web.onrender.com` |
 | `RADAR_DISABLE_BACKGROUND_JOBS` | não definida | `1` desliga a importação das 03:00, os workers de datas e de fotos e as notificações |
-| `RADAR_ENABLE_CAIXA_DATE_WORKER` | `1` | worker de datas |
-| `RADAR_ENABLE_CAIXA_PHOTO_WORKER` | `1` | worker de fotos |
-| `RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS` | `60` (mínimo 10) | pausa entre imóveis no worker de datas |
-| `RADAR_CAIXA_FOTOS_INTERVALO_SEGUNDOS` | `30` (mínimo 5) | pausa entre imóveis nas fotos |
+| `RADAR_ENABLE_CAIXA_DATE_WORKER` | `1` | worker de datas (e fotos da mesma página) |
+| `RADAR_ENABLE_CAIXA_PHOTO_WORKER` | `0` no branch (`1` antes) | worker de fotos antigo, com browser |
+| `RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS` | `600` (mínimo 60) no branch; `60` (mínimo 10) antes | pausa entre imóveis no worker de datas |
+| `RADAR_CAIXA_DATAS_MAX_PEDIDOS_DIA` | `20` (0 a 1000), só no branch | pedidos de datas por dia UTC (worker + Admin) |
+| `RADAR_CAIXA_LISTA_INTERVALO_SEGUNDOS` | `60` (mínimo 30), só no branch | pausa entre UFs na descarga das listas |
+| `RADAR_PERMITIR_SELENIUM_CAIXA` | não definida, só no branch | `1` reativa os endpoints de fotos com browser (410 sem ela) |
+| `RADAR_CAIXA_FOTOS_INTERVALO_SEGUNDOS` | `30` (mínimo 5) | pausa entre imóveis nas fotos (worker antigo) |
 | `BROWSER_HEADLESS` | `false` no Playwright e no downloader; `true` no scraper de datas | o `Dockerfile` define `true` |
 | `CONSULTORIA_PROVEDOR` | `anthropic` | `anthropic` ou `ollama` |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | obrigatória / `claude-sonnet-5-5` | consultoria |
@@ -127,14 +156,16 @@ $env:RADAR_DISABLE_BACKGROUND_JOBS = "1"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-- Por omissão usa SQLite em memória: 380 passam, 6 são ignorados (só correm em
-  PostgreSQL) e 2 são `xfail` (decisões 2 e 5).
+- Por omissão usa SQLite em memória. No branch `feat/worker-datas-edital` (28/10/2026):
+  513 passam e 6 são ignorados (só correm em PostgreSQL); já não há `xfail`. Os testes de
+  logging deixaram de precisar de um PostgreSQL local a correr. Nenhum teste contacta a
+  Caixa (confirmado com a rede externa bloqueada durante a execução).
 - Com PostgreSQL de teste: cria uma base vazia (por exemplo `radar_test`) e define
   `$env:TEST_DATABASE_URL = "postgresql://<utilizador>:<senha>@localhost:5432/radar_test"`
   só nessa sessão. Passam 386 e há 2 `xfail`, incluindo os testes do lock entre processos.
 - Os testes da consultoria usam um fornecedor falso e não dependem do `.env`.
 
-**Frontend** (a partir de `frontend/`): `npx vitest run` (31 testes) e `npx vite build`.
+**Frontend** (a partir de `frontend/`): `npx vitest run` (37 testes no branch) e `npx vite build`.
 
 **App móvel** (a partir de `app_flutter/`):
 
@@ -257,3 +288,45 @@ não faz deploy de nenhum. As Pull Request Previews estão desligadas em ambos.
   `[BROWSER]`/`[GALERIA]` nos logs.
 - Não acordar a instância (nem com `/health`) antes de confirmar que as variáveis estão
   ativas.
+
+## 9. Recuperação das datas e worker novo (26 a 28/10/2026)
+
+**Pedidos reais à Caixa (todos do IP local, NordVPN desligada, rota pela Wi-Fi, cada um
+com autorização explícita).** Nenhum foi repetido.
+
+| Momento (UTC) | Pedido | Resultado |
+|---|---|---|
+| 26/10 12:58 | página do imóvel 9217 | 200, datas no HTML (20/10 e 26/10) |
+| 27/10 01:44 | lote: páginas 9222 e 9225, 62 s entre elas | 9222 OK; 9225 → 302 para `validate.perfdrive.com` (desafio Radware); lote parado |
+| 28/10 00:36 | PDF do edital EL00490226CPARE | 200, PDF válido; datas únicas do edital e 613 números no Anexo II |
+| 28/10 01:47 | worker novo, 1 pedido (página do 10182) | 200, datas gravadas na cópia, edital adiado pelo limite |
+| 28/10 02:18 | lista do AC (`listaweb/`) | 200, CSV válido (geração 27/10); confirma o endereço direto |
+
+**Factos**
+- A página de cada imóvel indica o edital (`/editais/<código>.PDF`) e traz as fotos da
+  galeria em HTML estático (`/fotos/...`).
+- Um PDF de edital dá as datas de centenas de imóveis num só pedido. No EL00490226CPARE:
+  557 lotes à venda (9 com números de 8 dígitos) e 35 `ANULADO`/`Arrematado`.
+- Na cópia local (`arremata_copia`), 201 imóveis receberam datas a partir destes pedidos
+  (199 do edital, 9222 e 10182 das páginas). O 12678, lote anulado, recebeu datas por
+  engano e foi revertido.
+- Para a produção foi preparado um SQL que copia essas 201 datas por URL, só onde as três
+  datas estão a NULL (verificar, aplicar com ensaio por omissão, desfazer). Na produção,
+  a verificação e o ensaio deram 201 / 201 / 201 / 0 / 0 e `UPDATE 201` com `ROLLBACK`.
+  A aplicação com `COMMIT` estava, à data desta nota, nas mãos do utilizador.
+
+**Hipóteses (não confirmadas)**
+- O desafio de 27/10 terá vindo de pedidos seguidos às páginas `detalhe-imovel.asp`;
+  PDFs e listas pareceram menos vigiados, mas há só 1 pedido de cada.
+- O IP do Render pode continuar marcado desde 24/10 (secção 8).
+
+**Para pôr o worker em produção (cada passo com autorização)**
+1. Push do branch, PR e merge; o deploy da API cria a tabela `caixa_pedidos_dia`.
+   Manter `RADAR_DISABLE_BACKGROUND_JOBS=1` neste deploy.
+2. O plano Free adormece a API sem tráfego (secção 7): o ciclo em segundo plano e a
+   importação das 03:00 só correm com a instância acordada. É preciso decidir como a
+   manter acordada ou de onde correr as rotinas (por exemplo, um serviço externo que
+   chame `/health` a cada 10 min, ou um plano pago, ou um *cron job*).
+3. Ligar as rotinas com `RADAR_ENABLE_CAIXA_PHOTO_WORKER=0`, o limite diário baixo e
+   acompanhar os logs do primeiro dia; subir o ritmo só depois de uma semana sem
+   bloqueios.

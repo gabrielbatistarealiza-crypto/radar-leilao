@@ -13,6 +13,22 @@ def saida_do_logger_da_app(monkeypatch):
     monkeypatch.setenv("RADAR_DISABLE_BACKGROUND_JOBS", "1")
     logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
 
+    # Importar app.main corre create_all na base configurada no .env; estes
+    # testes só tratam do logging, por isso usam um SQLite em memória e não
+    # dependem de um PostgreSQL local a correr.
+    import sys
+
+    if "app.main" not in sys.modules:
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+
+        from app.database import database as banco
+
+        monkeypatch.setattr(
+            banco, "engine",
+            create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool),
+        )
+
     from app import main
 
     main.configurar_logging_da_app()

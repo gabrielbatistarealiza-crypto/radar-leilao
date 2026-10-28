@@ -35,6 +35,10 @@ STATUS_VALIDOS = {
     "cancelada",
 }
 
+# Uma negociação nestes estados está encerrada: não volta a mudar. Para negociar
+# de novo abre-se outra negociação (se a oportunidade ainda estiver aberta).
+STATUS_FINAIS = {"aceita", "recusada", "cancelada"}
+
 
 class NegociacaoCreate(BaseModel):
     oportunidade_id: int
@@ -198,9 +202,18 @@ def atualizar_status_negociacao(
             detail="Oportunidade não encontrada.",
         )
 
-    exigir_acesso_oportunidade(usuario_db, oportunidade)
+    # Só o corretor responsável e o administrador registam o andamento da
+    # negociação; o cliente acompanha em modo de consulta (como no site) e não
+    # pode, por exemplo, aceitar a própria proposta.
+    exigir_acesso_oportunidade(usuario_db, oportunidade, permitir_cliente=False)
 
     novo_status = dados.status.strip().lower()
+
+    if negociacao.status in STATUS_FINAIS:
+        raise HTTPException(
+            status_code=400,
+            detail="Esta negociação já foi encerrada e não pode ser alterada.",
+        )
 
     if novo_status not in STATUS_VALIDOS:
         raise HTTPException(

@@ -735,8 +735,13 @@ class CaixaScraper(BaseScraper):
                     ["link de acesso", "url", "link", "link do imÃƒÂ³vel"]
                 )
 
-                if modalidade != "Leilão SFI - Edital Único":
+                # Só "Leilão SFI - Edital Único". A comparação ignora acentos,
+                # maiúsculas, hífenes e espaços (decisão 6): uma pequena mudança
+                # no rótulo da Caixa não deve fazer a importação trazer 0 imóveis.
+                # Grava-se sempre o rótulo canónico.
+                if self._normalizar_coluna(modalidade) != "leilao sfi edital unico":
                     continue
+                modalidade = "Leilão SFI - Edital Único"
 
                 # Normaliza URL da CAIXA.
                 # O CSV pode trazer:
