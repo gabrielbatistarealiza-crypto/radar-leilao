@@ -65,7 +65,7 @@ def travar_selenium() -> None:
 
 def resumo_da_volta(resultado: dict) -> dict:
     chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "edital", "estado_edital",
-              "membros_na_base", "preenchidos_pelo_edital", "paragem", "destino", "imovel_incoerente",
+              "membros_na_base", "sem_venda_na_base", "preenchidos_pelo_edital", "paragem", "destino", "imovel_incoerente",
               "concluido", "aguardando_bloqueio", "paragem_manual", "ocupado", "tem_mais")
     return {k: resultado[k] for k in chaves if k in resultado}
 

@@ -172,7 +172,19 @@ def ler_pagina(corpo: bytes) -> tuple[tuple, str | None]:
 class Edital:
     data_primeiro_leilao: date
     data_segundo_leilao: date
-    numeros: set[str]
+    numeros: set[str]  # lotes à venda (número seguido dos valores); sem zeros à esquerda
+    numeros_sem_venda: set[str] = field(default_factory=set)  # ANULADO / Arrematado
+
+
+# "Número do bem" no Anexo II: 8 a 13 dígitos seguidos dos valores de venda
+# (lote ativo) ou de ANULADO / Arrematado. Não apanha IPTU nem matrículas,
+# que vêm seguidos de outro texto (ex.: "IPTU: 0102141074001 Matrícula").
+_RE_BEM_COM_VALOR = re.compile(r"(?<![\w.,/-])(\d{8,13})\s+\d{1,3}(?:\.\d{3})*,\d{2}")
+_RE_BEM_SEM_VENDA = re.compile(r"(?<![\w.,/-])(\d{8,13})[ \t]{2,}(?:ANULADO|Arrematado)\b")
+
+
+def _normalizar_numero(numero: str) -> str:
+    return numero.lstrip("0") or "0"
 
 
 def interpretar_texto_edital(texto: str) -> Edital | None:
@@ -190,8 +202,10 @@ def interpretar_texto_edital(texto: str) -> Edital | None:
     inicio = texto.find("Anexo II – RELAÇÃO DE IMÓVEIS")
     if not d1 or not d2 or d2 < d1 or inicio < 0:
         return None
-    numeros = set(re.findall(r"(?<!\d)\d{13}(?!\d)", texto[inicio:]))
-    return Edital(d1, d2, numeros) if numeros else None
+    anexo = texto[inicio:]
+    numeros = {_normalizar_numero(n) for n in _RE_BEM_COM_VALOR.findall(anexo)}
+    sem_venda = {_normalizar_numero(n) for n in _RE_BEM_SEM_VENDA.findall(anexo)} - numeros
+    return Edital(d1, d2, numeros, sem_venda) if numeros else None
 
 
 def ler_edital(corpo: bytes) -> Edital | None:
@@ -211,8 +225,9 @@ def ler_edital(corpo: bytes) -> Edital | None:
 
 
 def numero_do_imovel(url: str | None) -> str | None:
+    """hdnimovel do URL, sem zeros à esquerda (o edital usa 8 ou 13 dígitos)."""
     m = _RE_HDNIMOVEL.search(url or "")
-    return m.group(1).zfill(13) if m else None
+    return _normalizar_numero(m.group(1)) if m else None
 
 
 # ------------------------------------------------------------------ fila e passo
@@ -244,25 +259,26 @@ def _sem_datas(imovel) -> bool:
 
 def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
     """Valida e aplica o edital. Devolve {"paragem": motivo} sem gravar nada se não conferir."""
-    membros = [
-        i for i in db.query(Imovel).filter(Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)).all()
-        if numero_do_imovel(i.url) in edital.numeros
-    ]
-    if atual not in membros:
+    caixa = db.query(Imovel).filter(Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)).all()
+    ativos = [i for i in caixa if numero_do_imovel(i.url) in edital.numeros]
+    sem_venda = [i for i in caixa if numero_do_imovel(i.url) in edital.numeros_sem_venda]
+    if atual not in ativos and atual not in sem_venda:
         return {"paragem": "IMOVEL_FORA_DO_EDITAL"}
     esperado = (edital.data_primeiro_leilao, edital.data_segundo_leilao)
-    for i in membros:
+    for i in ativos:
         tem = (i.data_primeiro_leilao, i.data_segundo_leilao)
         if any(tem) and tem != esperado or i.data_licitacao_aberta is not None:
             return {"paragem": "EDITAL_INCOERENTE", "imovel_incoerente": i.id}
     preenchidos = 0
-    for i in membros:
+    for i in ativos + sem_venda:
         if i.link_edital is None:
             i.link_edital = link
+    for i in ativos:  # lotes ANULADO / Arrematado não recebem datas do edital
         if _sem_datas(i) and not _e_licitacao(i):
             i.data_primeiro_leilao, i.data_segundo_leilao = esperado
             preenchidos += 1
-    return {"membros_na_base": len(membros), "preenchidos_pelo_edital": preenchidos}
+    return {"membros_na_base": len(ativos), "sem_venda_na_base": len(sem_venda),
+            "preenchidos_pelo_edital": preenchidos}
 
 
 def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None) -> dict:

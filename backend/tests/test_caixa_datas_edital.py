@@ -435,8 +435,69 @@ def test_edital_com_datas_trocadas_nao_e_interpretavel():
 
 
 def test_numero_do_imovel():
-    assert ce.numero_do_imovel(URL.format("123")) == "0000000000123"
+    assert ce.numero_do_imovel(URL.format("0000010311523")) == "10311523"
+    assert ce.numero_do_imovel(URL.format("8444408241749")) == "8444408241749"
     assert ce.numero_do_imovel("https://x/y") is None
+
+
+ANEXO_REAL = (
+    "1.1 – Data e Hora da Sessão do 1º Leilão 20/10/2026 às 10:00h.\n"
+    "1.2 – Data e Hora da Sessão do 2º Leilão 26/10/2026 às 10:00h.\n"
+    "Anexo II – RELAÇÃO DE IMÓVEIS\n"
+    "cozinha. IPTU: 0102141074001 Matrícula: 20090 Ofício: 1.  \n"
+    "8444428731636  180.000,00  108.000,00  180.000,00  \n"
+    "garagem. IPTU: \n10311523  230.000,00  265.163,79  230.000,00  \n"
+    "IPTU: S0131401036200 \nMatrícula: 72929 \n"
+    "1444405673771  ANULADO    \n"
+    "1444404561864  Arrematado \n1º leilão \n"
+)
+
+
+def test_anexo_ii_numeros_curtos_iptu_e_lotes_sem_venda():
+    e = ce.interpretar_texto_edital(ANEXO_REAL)
+    assert e.numeros == {"8444428731636", "10311523"}  # 13 e 8 dígitos, com valores
+    assert e.numeros_sem_venda == {"1444405673771", "1444404561864"}
+    # números de IPTU nunca contam como imóveis
+    assert "102141074001" not in e.numeros | e.numeros_sem_venda
+    assert "131401036200" not in e.numeros | e.numeros_sem_venda
+
+
+def test_imovel_com_numero_curto_e_reconhecido_e_preenchido(sessao, fabrica):
+    a = imovel(fabrica, "10311523")
+    b = imovel(fabrica, "8444428731636")
+    corpo = b"%PDF-" + ANEXO_REAL.encode("utf-8")
+    rede = Rede({a.url: pagina(D1, D2), EDITAL_A: corpo})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, a, b)
+    assert "paragem" not in r and r["estado_edital"] == "LIDO"
+    assert (b.data_primeiro_leilao, b.data_segundo_leilao) == (D1, D2)
+
+
+def test_lote_anulado_esta_no_edital_mas_nao_recebe_datas(sessao, fabrica):
+    a = imovel(fabrica, "8444428731636")
+    anulado = imovel(fabrica, "1444405673771")
+    corpo = b"%PDF-" + ANEXO_REAL.encode("utf-8")
+    rede = Rede({a.url: pagina(D1, D2), EDITAL_A: corpo})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, anulado)
+    assert "paragem" not in r and r["sem_venda_na_base"] == 1
+    assert anulado.data_primeiro_leilao is None and anulado.link_edital == EDITAL_A
+
+
+def test_imovel_anulado_na_pagina_nao_e_tratado_como_fora_do_edital(sessao, fabrica):
+    anulado = imovel(fabrica, "1444405673771")
+    corpo = b"%PDF-" + ANEXO_REAL.encode("utf-8")
+    rede = Rede({anulado.url: pagina(), EDITAL_A: corpo})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, anulado)
+    assert "paragem" not in r and r["estado_edital"] == "LIDO"
+    assert anulado.data_primeiro_leilao is None
 
 
 # ------------------------------------------------------- comando para a cópia
