@@ -43,10 +43,8 @@ def sopa(html):
 @pytest.fixture(autouse=True)
 def limpar_estado_global():
     CaixaScraper._bloqueio_ate = 0.0
-    worker._falhas_tecnicas.clear()
     yield
     CaixaScraper._bloqueio_ate = 0.0
-    worker._falhas_tecnicas.clear()
 
 
 # ----------------------------------------------------- leitura da página
@@ -341,64 +339,34 @@ def test_falha_tecnica_para_a_leva_e_nao_salta_os_seguintes(sessao, fabrica, scr
 
 
 # ------------------------------------------------------------- worker
+# O comportamento do worker (imóvel + edital, paragem manual, sem Selenium)
+# está em test_caixa_datas_edital.py.
 
 def estado(sessao):
     sessao.expire_all()
     return sessao.get(CaixaDataWorkerState, 1)
 
 
-def test_falha_tecnica_repete_o_mesmo_imovel_ate_ao_limite(sessao, fabrica, scraper_falso):
+def test_fila_concluida_nao_corre_ate_ser_reativada(sessao, fabrica):
+    from app.services.caixa_datas_edital import RespostaCaixa
+
     a = imovel_caixa(fabrica, 1)
-    b = imovel_caixa(fabrica, 2)
-    scraper_falso(
-        {
-            a.url: CaixaFalhaTecnicaError("chrome"),
-            b.url: (date(2026, 9, 9), date(2026, 9, 20), None),
-        }
-    )
+    pedidos = []
 
-    for tentativa in range(1, worker.MAX_FALHAS_TECNICAS_POR_IMOVEL):
-        resultado = worker.processar_lote_datas_caixa(sessao)
-        assert resultado["tentar_novamente"] is True
-        assert resultado["tentativas_falha_tecnica"] == tentativa
-        assert estado(sessao).cursor_id == a.id - 1
-        assert estado(sessao).ativo is True
-        assert estado(sessao).bloqueado_ate is None
+    def pedir(url, tipo):
+        pedidos.append(url)
+        return RespostaCaixa("OK", status=200, corpo=PAGINA_SEM_DATAS.encode())
 
-    # Na última tentativa desiste deste e segue para o próximo.
-    resultado = worker.processar_lote_datas_caixa(sessao)
-    assert "tentar_novamente" not in resultado
-    assert estado(sessao).cursor_id == a.id
-
-    resultado = worker.processar_lote_datas_caixa(sessao)
-    assert resultado["atualizados"] == 1
-    assert resultado["concluido"] is True
-    assert estado(sessao).ativo is False
-
-
-def test_bloqueio_continua_a_recuar_o_cursor_e_esperar(sessao, fabrica, scraper_falso):
-    a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: "BLOQUEIO"})
-    agora = datetime(2026, 10, 23, 12, 0, 0)
-
-    resultado = worker.processar_lote_datas_caixa(sessao, agora=agora)
-
-    assert resultado["bloqueado"] is True
-    assert estado(sessao).cursor_id == a.id - 1
-    assert estado(sessao).bloqueado_ate == agora + timedelta(hours=12)
-
-
-def test_fila_concluida_nao_corre_ate_ser_reativada(sessao, fabrica, scraper_falso):
-    a = imovel_caixa(fabrica, 1)
-    scraper_falso({a.url: (None, None, None)})
-
-    assert worker.processar_lote_datas_caixa(sessao)["concluido"] is True
-    assert worker.processar_lote_datas_caixa(sessao) == {"concluido": True}
+    primeiro = worker.processar_lote_datas_caixa(sessao, pedir=pedir)
+    assert primeiro["processados"] == 1 and primeiro["tem_mais"] is False
+    assert worker.processar_lote_datas_caixa(sessao, pedir=pedir)["concluido"] is True
+    assert worker.processar_lote_datas_caixa(sessao, pedir=pedir) == {"concluido": True, "pedidos": 0}
+    assert pedidos == [a.url]
 
     worker.reativar_worker_datas_caixa(sessao)
     sessao.commit()
 
-    resultado = worker.processar_lote_datas_caixa(sessao)
+    resultado = worker.processar_lote_datas_caixa(sessao, pedir=pedir)
     assert resultado["processados"] == 1
 
 

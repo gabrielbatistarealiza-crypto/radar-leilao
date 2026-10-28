@@ -1,23 +1,27 @@
-"""Fila automática de datas da CAIXA (um imóvel por volta).
+"""Fila automática de datas da CAIXA (um imóvel, e o seu edital, por volta).
 
 Fica fora de app/main.py para poder ser testada sem arrancar a aplicação.
-Quem chama deve segurar CAIXA_COLETA_LOCK.
+Quem chama deve segurar CAIXA_COLETA_LOCK (ver caixa_acesso.acesso_caixa).
+
+Cada volta usa só requests (sem Selenium) e faz no máximo 2 pedidos: a página
+do imóvel e, se ainda não foi lido, o PDF do edital (ver caixa_datas_edital).
+Perante qualquer bloqueio ou resposta inesperada o worker PARA até revisão
+manual: nunca repete o pedido nem retoma sozinho.
 """
 import logging
 import os
 from datetime import datetime, timedelta
 
 from app.models.caixa_data_worker_state import CaixaDataWorkerState
+from app.models.imovel import Imovel
+from app.services.caixa_datas_edital import (
+    PARAGEM_MANUAL,
+    e_paragem_manual,
+    filtro_pendentes,
+    processar_passo,
+)
 
 logger = logging.getLogger(__name__)
-
-# Quantas vezes seguidas o mesmo imóvel pode falhar por motivo técnico
-# (Chrome indisponível, timeouts) antes de a fila seguir em frente.
-MAX_FALHAS_TECNICAS_POR_IMOVEL = 3
-
-# Contagem em memória: recomeça se o processo reiniciar, o que só dá mais
-# tentativas a esse imóvel. Não precisa de coluna nova na base de dados.
-_falhas_tecnicas: dict[int, int] = {}
 
 # Pausa entre dois imóveis consultados pelo worker. Configurável por
 # RADAR_CAIXA_DATAS_INTERVALO_SEGUNDOS; abaixo do mínimo usa o mínimo.
@@ -57,6 +61,20 @@ def registrar_bloqueio(estado, agora: datetime) -> int:
     return horas_espera
 
 
+def registrar_paragem_manual(estado, agora: datetime, imovel_id: int | None = None) -> None:
+    """Para o worker até alguém rever: espera sem fim, fila inativa.
+
+    O cursor recua para que, depois da revisão, o mesmo imóvel seja o próximo.
+    Para retomar: bloqueado_ate = NULL e ativo = true (à mão, depois de rever).
+    """
+    estado.bloqueios_consecutivos = (estado.bloqueios_consecutivos or 0) + 1
+    estado.bloqueado_ate = PARAGEM_MANUAL
+    estado.ativo = False
+    if imovel_id is not None:
+        estado.cursor_id = max(0, int(imovel_id) - 1)
+    estado.atualizado_em = agora
+
+
 def _obter_estado(db):
     estado = db.get(CaixaDataWorkerState, 1)
     if estado is None:
@@ -71,19 +89,22 @@ def reativar_worker_datas_caixa(db) -> None:
 
     Usado depois de cada importação da lista: os imóveis novos chegam sem datas
     e os que ficaram sem datas na volta anterior voltam a ser tentados.
-    Um bloqueio ainda em vigor (bloqueado_ate) é respeitado.
+    Um bloqueio ou uma paragem manual ainda em vigor (bloqueado_ate) é respeitado.
     """
     estado = _obter_estado(db)
     estado.ativo = True
     estado.cursor_id = None
     estado.atualizado_em = datetime.utcnow()
-    _falhas_tecnicas.clear()
 
 
-def processar_lote_datas_caixa(db, agora: datetime | None = None) -> dict:
-    """Consulta o próximo imóvel pendente e avança o cursor da fila."""
-    from app.services.scraper_service import ScraperService
+def processar_lote_datas_caixa(
+    db, agora: datetime | None = None, pedir=None, max_pedidos: int = 2
+) -> dict:
+    """Uma volta: o próximo imóvel pendente (e o seu edital); avança o cursor.
 
+    `pedir` substitui o pedido HTTP (testes). `max_pedidos` (1 ou 2) limita os
+    GET desta volta; com 1, o edital fica para uma volta seguinte.
+    """
     estado = db.get(CaixaDataWorkerState, 1)
     if estado is None:
         estado = CaixaDataWorkerState(id=1, ativo=True)
@@ -93,71 +114,46 @@ def processar_lote_datas_caixa(db, agora: datetime | None = None) -> dict:
 
     agora = agora or datetime.utcnow()
     if not estado.ativo:
-        return {"concluido": True}
+        return {"concluido": True, "pedidos": 0}
     if estado.bloqueado_ate and estado.bloqueado_ate > agora:
         return {
             "aguardando_bloqueio": True,
+            "paragem_manual": e_paragem_manual(estado.bloqueado_ate),
             "segundos_restantes": int(
                 (estado.bloqueado_ate - agora).total_seconds()
             ),
+            "pedidos": 0,
         }
 
-    resultado = ScraperService(db).enriquecer_datas_caixa(
-        limite=1,
-        depois_id=estado.cursor_id,
-    )
+    try:
+        resultado = processar_passo(db, estado, pedir=pedir, max_pedidos=max_pedidos)
+    except Exception:
+        db.rollback()
+        raise
 
-    if resultado.get("bloqueado"):
-        item_bloqueado = next(
-            (
-                item
-                for item in resultado.get("resultados", [])
-                if item.get("status") == "BLOQUEADO_CAIXA"
-            ),
-            None,
+    if "paragem" in resultado:
+        # As datas lidas da própria página (se houver) ficam; do edital nada foi
+        # gravado. O worker fica parado até revisão manual.
+        registrar_paragem_manual(estado, agora, resultado.get("imovel_id"))
+        resultado.update(bloqueado=True, paragem_manual=True)
+        logger.warning(
+            "Worker de datas da CAIXA PARADO para revisão manual: %s (imóvel %s).",
+            resultado["paragem"],
+            resultado.get("imovel_id"),
         )
-        if item_bloqueado:
-            estado.cursor_id = max(0, int(item_bloqueado["id"]) - 1)
-        horas_espera = registrar_bloqueio(estado, agora)
-        resultado["retomar_em"] = estado.bloqueado_ate.isoformat()
-        resultado["horas_espera"] = horas_espera
-
-    elif resultado.get("falha_tecnica"):
-        imovel_id = int(resultado["falha_tecnica_id"])
-        tentativas = _falhas_tecnicas.get(imovel_id, 0) + 1
-        resultado["tentativas_falha_tecnica"] = tentativas
-        if tentativas < MAX_FALHAS_TECNICAS_POR_IMOVEL:
-            # Fica no mesmo imóvel para a próxima volta.
-            _falhas_tecnicas[imovel_id] = tentativas
-            estado.cursor_id = max(0, imovel_id - 1)
-            resultado["tentar_novamente"] = True
-        else:
-            # Desiste deste imóvel nesta volta; a próxima importação reativa
-            # a fila e ele volta a ser tentado.
-            _falhas_tecnicas.pop(imovel_id, None)
-            logger.warning(
-                "Imóvel %s falhou %s vezes por motivo técnico; a fila segue.",
-                imovel_id,
-                tentativas,
-            )
-            _avancar_cursor(estado, resultado)
-
+    elif resultado.get("concluido"):
+        estado.cursor_id = None
+        estado.ativo = False
     else:
         estado.bloqueios_consecutivos = 0
-        estado.bloqueado_ate = None
-        for item in resultado.get("resultados", []):
-            _falhas_tecnicas.pop(item.get("id"), None)
-        _avancar_cursor(estado, resultado)
+        estado.cursor_id = resultado["imovel_id"]
+        resultado["tem_mais"] = bool(
+            db.query(Imovel.id)
+            .filter(filtro_pendentes(), Imovel.id > estado.cursor_id)
+            .first()
+        )
+        resultado["proximo_depois_id"] = estado.cursor_id
 
     estado.atualizado_em = agora
     db.commit()
     return resultado
-
-
-def _avancar_cursor(estado, resultado) -> None:
-    if resultado.get("tem_mais"):
-        estado.cursor_id = resultado.get("proximo_depois_id")
-    else:
-        estado.cursor_id = None
-        estado.ativo = False
-        resultado["concluido"] = True

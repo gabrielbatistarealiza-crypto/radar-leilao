@@ -175,18 +175,21 @@ async def _rotina_enriquecimento_datas_caixa():
                 await asyncio.sleep(ESPERA_FALHA_TECNICA_DATAS)
                 continue
             if resultado.get("aguardando_bloqueio"):
-                espera = max(60, resultado["segundos_restantes"])
+                # Paragem manual = espera sem fim: volta só a olhar de 6 em 6 h
+                # (sem contactar a CAIXA) até alguém rever e limpar o estado.
+                espera = min(max(60, resultado["segundos_restantes"]), 6 * 3600)
                 logger.info(
-                    "Worker de datas da CAIXA aguardará o bloqueio persistente "
-                    "expirar (%s segundos).",
+                    "Worker de datas da CAIXA parado (%s); nova verificação do "
+                    "estado em %s segundos.",
+                    "revisão manual" if resultado.get("paragem_manual") else "bloqueio",
                     espera,
                 )
                 await asyncio.sleep(espera)
                 continue
             if resultado.get("bloqueado"):
                 logger.warning(
-                    "CAIXA bloqueou o worker de datas; nova tentativa em %s horas.",
-                    resultado.get("horas_espera"),
+                    "Worker de datas da CAIXA parado para revisão manual: %s.",
+                    resultado.get("paragem"),
                 )
                 continue
             logger.info(
