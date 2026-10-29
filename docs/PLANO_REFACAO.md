@@ -51,7 +51,10 @@ Isto só cria a pequena tabela `alembic_version` com uma linha. Para desfazer:
 
 ## Ramos abertos e ordem de junção
 
-- `feat/registo-utilizadores` acrescenta a tabela `pedidos_corretor`. Se entrar
-  no `main` antes deste ramo, este ramo precisa de uma migração `0002` para essa
-  tabela (o teste de migrações avisa). Se entrar depois, é esse PR que leva a `0002`.
+- Ordem: primeiro `refactor/fase1-fundacoes`, depois `feat/registo-utilizadores`.
+- `feat/registo-utilizadores` já inclui a fase 1 e a migração `0002`
+  (`pedidos_corretor`). Enquanto o arranque usar `create_all`, a produção pode
+  já ter a tabela quando a `0002` correr: a migração deteta isso e só avança a
+  versão (testado: base vazia, produção marcada em 0001, e produção com a
+  tabela já criada).
 - `feat/rotina-caixa-local` (só local) não mexe em modelos.
