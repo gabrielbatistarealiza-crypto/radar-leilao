@@ -48,13 +48,19 @@ class ScraperService:
 
 
 
-    def executar_scraper_caixa(self) -> List[Imovel]:
+    def executar_scraper_caixa(self, ufs=None) -> List[Imovel]:
 
-        """Executa o scraper da Caixa e salva/atualiza os imóveis no banco."""
+        """Lê os CSV da Caixa e salva/atualiza os imóveis no banco.
+
+        `ufs`: se indicado, só lê os ficheiros dessas UFs (Lista_imoveis_<UF>.csv);
+        None lê todos os que estão na pasta (comando manual de importação).
+        """
 
         self.urls_vistas = set()
 
         scraper = CaixaScraper()
+        if ufs is not None:
+            scraper.ufs_permitidas = set(ufs)
 
         dados_imoveis: List[ImovelScraper] = scraper.executar()
 
@@ -384,11 +390,20 @@ class ScraperService:
                         else baixador.baixar_todos())
 
             # Bloqueio ou resposta inesperada: paragem manual partilhada (todas as
-            # rotinas da CAIXA param até revisão). Os CSVs que já estavam no disco
-            # continuam a ser lidos; a limpeza não corre (download incompleto).
+            # rotinas da CAIXA param até revisão); a limpeza não corre (download
+            # incompleto).
             self._fechar_descarga(download)
 
-            imoveis = self.executar_scraper_caixa()
+            # Só importa as UFs descarregadas AGORA. Os CSV antigos que ficaram no
+            # disco de outras UFs não são lidos: regravavam dados velhos (em
+            # 29/10/2026, 26 UFs de 21/10 foram reimportadas depois de um bloqueio).
+            ufs_importadas = sorted(set(download.get("sucesso", [])))
+            if ufs_importadas:
+                imoveis = self.executar_scraper_caixa(ufs=ufs_importadas)
+            else:
+                logger.warning("Nenhuma UF descarregada nesta execução: nada importado.")
+                self.urls_vistas = set()
+                imoveis = []
 
 
 
@@ -496,6 +511,8 @@ class ScraperService:
             return {
 
                 "download": download,
+
+                "ufs_importadas": ufs_importadas,
 
                 "imoveis_atualizados": len(imoveis),
 

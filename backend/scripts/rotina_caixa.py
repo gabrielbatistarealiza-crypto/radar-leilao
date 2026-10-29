@@ -240,6 +240,7 @@ def main() -> int:
                 linha_registo(f, "lista", {
                     "pedidos": download.get("pedidos", 0), "ufs_ok": len(download.get("sucesso", [])),
                     "paragem": download.get("paragem"), "uf_bloqueada": download.get("uf_bloqueada"),
+                    "ufs_importadas": r.get("ufs_importadas"),
                     "imoveis_atualizados": r.get("imoveis_atualizados"),
                     "imoveis_removidos": r.get("imoveis_removidos"),
                     "remocao_recusada": r.get("remocao_recusada"),
