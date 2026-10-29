@@ -10,6 +10,10 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# Migrações: vão na imagem para poderem correr no arranque numa fase seguinte.
+# Por agora não correm sozinhas; ver docs/PLANO_REFACAO.md.
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 EXPOSE 8000
 

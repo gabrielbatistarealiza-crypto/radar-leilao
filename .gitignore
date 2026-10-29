@@ -25,6 +25,8 @@ build/
 # Banco / Backups
 # =========================
 *.sql
+# Exceção: scripts de migração revistos (sem dados)
+!backend/migrations/producao/*.sql
 *.dump
 *.backup
 backups/

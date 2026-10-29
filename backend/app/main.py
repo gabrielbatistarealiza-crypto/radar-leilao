@@ -25,6 +25,7 @@ from app.routers.oportunidades import router as oportunidades_router
 from app.routers.negociacoes import router as negociacoes_router
 from app.routers.operacoes import router as operacoes_router
 from app.routers.corretores import router as corretores_router
+from app.routers.registo import router as registo_router
 from app.routers.anuncios_imoveis import (
     router as anuncios_imoveis_router
 )
@@ -400,6 +401,7 @@ app.include_router(oportunidades_router)
 app.include_router(negociacoes_router)
 app.include_router(operacoes_router)
 app.include_router(corretores_router)
+app.include_router(registo_router)
 app.include_router(anuncios_imoveis_router)
 app.include_router(simulacoes_rentabilidade_router)
 app.include_router(alertas_router)

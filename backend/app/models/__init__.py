@@ -11,3 +11,8 @@ from app.models.atividade_oportunidade import AtividadeOportunidade
 from app.models.criterio_alerta import CriterioAlerta
 from app.models.caixa_data_worker_state import CaixaDataWorkerState
 from app.models.caixa_pedidos_dia import CaixaPedidosDia
+# Todos os modelos têm de estar aqui: o Alembic e o create_all só conhecem as
+# tabelas importadas (o teste test_migracoes verifica que não falta nenhuma).
+from app.models.notificacao import Notificacao
+from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
+from app.models.pedido_corretor import PedidoCorretor
