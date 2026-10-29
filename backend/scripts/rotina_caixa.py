@@ -129,6 +129,8 @@ def main() -> int:
     p.add_argument("--base", choices=sorted(VARIAVEL_URL), required=True)
     p.add_argument("--lista", action="store_true", help="descarrega e importa as listas das UFs")
     p.add_argument("--max-ufs", type=int, default=MAX_UFS, help=f"UFs a descarregar (1 a {MAX_UFS})")
+    p.add_argument("--sem-remocoes", action="store_true",
+                   help="importa a lista sem apagar imóveis ausentes (só os conta)")
     p.add_argument("--intervalo-lista", type=int, default=INTERVALO_LISTA_PADRAO,
                    help=f"segundos entre UFs (mínimo {INTERVALO_LISTA_MINIMO})")
     p.add_argument("--max-pedidos-datas", type=int, default=0,
@@ -208,8 +210,9 @@ def main() -> int:
                       if inspect(motor).has_table("caixa_pedidos_dia") else 0)
             print("ENSAIO: nada foi pedido à CAIXA nem gravado.")
             if args.lista:
-                print(f"  lista: {args.max_ufs} UF(s), {args.intervalo_lista} s entre UFs; "
-                      f"remoções só com as 27 UFs da mesma geração")
+                remocoes = ("desligadas (só conta os ausentes)" if args.sem_remocoes
+                            else "só com as 27 UFs da mesma geração e até max(50, 5%)")
+                print(f"  lista: {args.max_ufs} UF(s), {args.intervalo_lista} s entre UFs; remoções: {remocoes}")
             if args.max_pedidos_datas:
                 print(f"  datas: até {args.max_pedidos_datas} pedido(s), {args.intervalo_datas} s entre voltas; "
                       f"hoje já {usados} de {limite_diario_pedidos()} (limite diário)")
@@ -223,7 +226,7 @@ def main() -> int:
         parou = False
         with open(registo, "x", encoding="utf-8") as f:  # nunca sobrescreve
             if args.lista:
-                r = executar_importacao(db, max_ufs=args.max_ufs)
+                r = executar_importacao(db, max_ufs=args.max_ufs, remover=not args.sem_remocoes)
                 download = r.get("download") or {}
                 linha_registo(f, "lista", {
                     "pedidos": download.get("pedidos", 0), "ufs_ok": len(download.get("sucesso", [])),
@@ -231,6 +234,8 @@ def main() -> int:
                     "imoveis_atualizados": r.get("imoveis_atualizados"),
                     "imoveis_removidos": r.get("imoveis_removidos"),
                     "remocao_recusada": r.get("remocao_recusada"),
+                    "ausentes_da_lista": r.get("ausentes_da_lista"),
+                    "remocoes_desligadas": args.sem_remocoes,
                     "aguardando_bloqueio": r.get("aguardando_bloqueio"), "ocupado": r.get("ocupado"),
                 })
                 parou = bool(download.get("bloqueado") or r.get("aguardando_bloqueio") or r.get("ocupado"))

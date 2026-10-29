@@ -418,12 +418,13 @@ class ScraperService:
             estado.atualizado_em = datetime.utcnow()
         self.db.commit()
 
-    def atualizar_lista_caixa(self, max_ufs: int | None = None) -> dict:
+    def atualizar_lista_caixa(self, max_ufs: int | None = None, remover: bool = True) -> dict:
 
         """Baixa, importa e remove anuncios Caixa ausentes da lista atual.
 
         `max_ufs` limita as UFs descarregadas (comando para a cópia); com menos
-        de 27 UFs nada é removido.
+        de 27 UFs nada é removido. `remover=False` nunca remove: só conta os
+        ausentes (`ausentes_da_lista`), para rever antes de os apagar.
         """
 
 
@@ -476,6 +477,7 @@ class ScraperService:
 
             removidos = 0
             remocao_recusada = 0
+            ausentes_da_lista = None
 
             # Todas as listas desta descarga têm de ter a mesma data de geração.
             geracoes = download.get("geracoes")
@@ -492,7 +494,14 @@ class ScraperService:
             if estados_baixados == estados_esperados and urls_ativas and geracao_unica:
 
                 ausentes, limite = self._contar_ausentes(urls_ativas)
-                if ausentes > limite:
+                ausentes_da_lista = ausentes
+                if not remover:
+                    logger.info(
+                        "Limpeza de imoveis Caixa desligada nesta execucao: %s ausentes "
+                        "da lista (nada removido).",
+                        ausentes,
+                    )
+                elif ausentes > limite:
                     remocao_recusada = ausentes
                     logger.warning(
                         "Limpeza de imoveis Caixa RECUSADA: %s ausentes da lista "
@@ -564,6 +573,8 @@ class ScraperService:
                 "imoveis_removidos": removidos,
 
                 "remocao_recusada": remocao_recusada,
+
+                "ausentes_da_lista": ausentes_da_lista,
 
                 "fila_fotos": fila_fotos,
 
