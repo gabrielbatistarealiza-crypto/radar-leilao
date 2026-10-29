@@ -418,7 +418,9 @@ class ScraperService:
             estado.atualizado_em = datetime.utcnow()
         self.db.commit()
 
-    def atualizar_lista_caixa(self, max_ufs: int | None = None, remover: bool = True) -> dict:
+    def atualizar_lista_caixa(
+        self, max_ufs: int | None = None, remover: bool = True, com_browser: bool = False
+    ) -> dict:
 
         """Baixa, importa e remove anuncios Caixa ausentes da lista atual.
 
@@ -450,7 +452,13 @@ class ScraperService:
         try:
 
             self._marcar_descarga_em_curso()
-            baixador = CaixaDownloader()
+            if com_browser:
+                # Só pelo comando local (scripts/rotina_caixa.py --lista-com-browser).
+                from app.services.caixa_downloader import CaixaDownloaderControlado
+
+                baixador = CaixaDownloaderControlado()
+            else:
+                baixador = CaixaDownloader()
             download = (baixador.baixar_todos(max_ufs=max_ufs) if max_ufs
                         else baixador.baixar_todos())
 

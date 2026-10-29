@@ -129,6 +129,9 @@ def main() -> int:
     p.add_argument("--base", choices=sorted(VARIAVEL_URL), required=True)
     p.add_argument("--lista", action="store_true", help="descarrega e importa as listas das UFs")
     p.add_argument("--max-ufs", type=int, default=MAX_UFS, help=f"UFs a descarregar (1 a {MAX_UFS})")
+    p.add_argument("--lista-com-browser", action="store_true",
+                   help="descarrega as listas com um browser real (Selenium), 1 tentativa por UF; "
+                        "só neste computador (decisão de 29/10/2026)")
     p.add_argument("--sem-remocoes", action="store_true",
                    help="importa a lista sem apagar imóveis ausentes (só os conta)")
     p.add_argument("--intervalo-lista", type=int, default=INTERVALO_LISTA_PADRAO,
@@ -144,6 +147,8 @@ def main() -> int:
     p.add_argument("--registo", default=None, help="ficheiro .jsonl novo para o resultado")
     p.add_argument("--confirmo-contactar-caixa", action="store_true")
     args = p.parse_args()
+    if args.lista_com_browser:
+        args.lista = True
 
     if not args.lista and args.max_pedidos_datas == 0:
         sys.exit("Recusado: indique --lista e/ou --max-pedidos-datas N.")
@@ -176,7 +181,8 @@ def main() -> int:
     ok, onde = confirmar_copia(motor) if args.base == "copia" else confirmar_producao(motor, url)
     if not ok:
         sys.exit(f"Recusado: {onde}. Nada foi feito.")
-    travar_selenium()
+    if not args.lista_com_browser:
+        travar_selenium()  # sem --lista-com-browser, nenhum caminho pode abrir um browser
 
     import app.models  # noqa: F401
     from app.models.caixa_data_worker_state import CaixaDataWorkerState
@@ -212,7 +218,9 @@ def main() -> int:
             if args.lista:
                 remocoes = ("desligadas (só conta os ausentes)" if args.sem_remocoes
                             else "só com as 27 UFs da mesma geração e até max(50, 5%)")
-                print(f"  lista: {args.max_ufs} UF(s), {args.intervalo_lista} s entre UFs; remoções: {remocoes}")
+                modo = "browser (Selenium), 1 tentativa por UF" if args.lista_com_browser else "requests"
+                print(f"  lista: {args.max_ufs} UF(s), {args.intervalo_lista} s entre UFs, {modo}; "
+                      f"remoções: {remocoes}")
             if args.max_pedidos_datas:
                 print(f"  datas: até {args.max_pedidos_datas} pedido(s), {args.intervalo_datas} s entre voltas; "
                       f"hoje já {usados} de {limite_diario_pedidos()} (limite diário)")
@@ -226,7 +234,8 @@ def main() -> int:
         parou = False
         with open(registo, "x", encoding="utf-8") as f:  # nunca sobrescreve
             if args.lista:
-                r = executar_importacao(db, max_ufs=args.max_ufs, remover=not args.sem_remocoes)
+                r = executar_importacao(db, max_ufs=args.max_ufs, remover=not args.sem_remocoes,
+                                        com_browser=args.lista_com_browser)
                 download = r.get("download") or {}
                 linha_registo(f, "lista", {
                     "pedidos": download.get("pedidos", 0), "ufs_ok": len(download.get("sucesso", [])),
@@ -236,6 +245,7 @@ def main() -> int:
                     "remocao_recusada": r.get("remocao_recusada"),
                     "ausentes_da_lista": r.get("ausentes_da_lista"),
                     "remocoes_desligadas": args.sem_remocoes,
+                    "com_browser": args.lista_com_browser,
                     "aguardando_bloqueio": r.get("aguardando_bloqueio"), "ocupado": r.get("ocupado"),
                 })
                 parou = bool(download.get("bloqueado") or r.get("aguardando_bloqueio") or r.get("ocupado"))

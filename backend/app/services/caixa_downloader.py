@@ -792,6 +792,76 @@ class CaixaDownloader:
         }
 
 
+class CaixaDownloaderControlado(CaixaDownloader):
+    """Browser real (Selenium) SÓ para as listas e SÓ a partir do computador do utilizador.
+
+    Decisão de 29/10/2026: com requests, a CAIXA desafiou (302 Radware) o 2.º
+    pedido de lista feito 60 s depois do 1.º; a 22/10 este downloader com browser
+    descarregou as 27 listas sem bloqueio. Regras desta variante:
+      - 1 tentativa por UF (nunca repete);
+      - pára na PRIMEIRA falha de qualquer tipo (CAPTCHA, download que não
+        aparece, ficheiro que não é a lista, browser que não arranca) e devolve
+        bloqueado=True, para quem chamou gravar a paragem manual;
+      - CAPTCHA visível nunca é resolvido: só se pára;
+      - pausa entre UFs (RADAR_CAIXA_LISTA_INTERVALO_SEGUNDOS, mínimo 30 s);
+      - devolve a data de geração de cada lista, como a CaixaListaSegura.
+    Nunca deve correr no Render (IP recusado pela CAIXA).
+    """
+
+    def __init__(self, intervalo=None, pasta_dados=None):
+        super().__init__()
+        from app.services.caixa_lista_segura import intervalo_entre_ufs
+
+        if pasta_dados:
+            self.pasta_dados = Path(pasta_dados)
+        self.intervalo = intervalo if intervalo is not None else intervalo_entre_ufs()
+
+    def baixar_todos(self, max_ufs=None, **_ignorados):
+        from app.services.caixa_lista_segura import data_de_geracao
+
+        ufs = self.UFS[:max_ufs] if max_ufs else list(self.UFS)
+        resultado = {"sucesso": [], "falhas": [], "bloqueado": False, "uf_bloqueada": None,
+                     "paragem": None, "pedidos": 0, "geracoes": {}, "com_browser": True}
+
+        def parar(uf, motivo, erro):
+            resultado.update(bloqueado=True, uf_bloqueada=uf, paragem=motivo)
+            resultado["falhas"].append({"uf": uf, "erro": erro})
+            print(f"[CAIXA] Listas com browser PARADAS em {uf}: {motivo} ({erro}).")
+
+        try:
+            try:
+                self.criar_driver()
+            except Exception as erro:
+                parar(None, "FALHA_BROWSER", f"{type(erro).__name__}: {erro}")
+                return resultado
+            for indice, uf in enumerate(ufs):
+                if indice:
+                    time.sleep(self.intervalo)
+                resultado["pedidos"] += 1
+                try:
+                    estado = self.baixar_estado(uf, tentativas=1)
+                except CaixaBloqueioError as erro:
+                    parar(uf, "CAPTCHA", str(erro))
+                    break
+                if not estado.get("sucesso"):
+                    parar(uf, "FALHA_DOWNLOAD", estado.get("erro") or "erro desconhecido")
+                    break
+                geracao = data_de_geracao(Path(estado["arquivo"]).read_bytes())
+                if geracao is None:
+                    parar(uf, "NAO_E_CSV_DA_CAIXA", "sem cabeçalho ou data de geração")
+                    break
+                resultado["sucesso"].append(uf)
+                resultado["geracoes"][uf] = geracao.isoformat()
+        finally:
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+        return resultado
+
+
 if __name__ == "__main__":
 
     downloader = CaixaDownloader()
