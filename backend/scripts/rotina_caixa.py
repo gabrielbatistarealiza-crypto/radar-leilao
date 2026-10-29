@@ -129,7 +129,9 @@ def main() -> int:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    motor = create_engine(url)
+    # A base do Render fica longe: avisa e não espera para sempre pela ligação.
+    print(f"A ligar à base ({args.base})...", flush=True)
+    motor = create_engine(url, connect_args={"connect_timeout": 30}, use_native_hstore=False)
     ok, onde = confirmar_copia(motor) if args.base == "copia" else confirmar_producao(motor, url)
     if not ok:
         sys.exit(f"Recusado: {onde}. Nada foi feito.")
