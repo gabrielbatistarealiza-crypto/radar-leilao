@@ -10,11 +10,10 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-# Migrações: vão na imagem para poderem correr no arranque numa fase seguinte.
-# Por agora não correm sozinhas; ver docs/PLANO_REFACAO.md.
 COPY alembic.ini ./alembic.ini
 COPY migrations ./migrations
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+# Primeiro as migrações; se falharem, a API não arranca (o Render mantém a versão anterior).
+CMD ["sh", "-c", "python -m app.migrar && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

@@ -13,9 +13,9 @@ Crie um serviço **Web Service** ligado ao repositório e selecione **Docker**. 
 - `DATABASE_URL`: Internal Database URL do banco Render.
 - `SECRET_KEY`: segredo aleatório forte, único para este ambiente.
 - `BROWSER_HEADLESS`: `true` (a imagem já usa esse padrão).
-- `RADAR_DISABLE_BACKGROUND_JOBS`: defina como `1` para desativar no lifespan as três rotinas em segundo plano: atualização Caixa das 03:00, processamento automático da fila de fotos e notificações. A criação das tabelas (`create_all`) continua ocorrendo no startup. Remova a variável ou use outro valor para reativar as rotinas. Isso exige reinício/redeploy do serviço; nenhuma configuração de produção é alterada por este repositório.
+- `RADAR_DISABLE_BACKGROUND_JOBS`: defina como `1` para desativar no lifespan as três rotinas em segundo plano: atualização Caixa das 03:00, processamento automático da fila de fotos e notificações. Remova a variável ou use outro valor para reativar as rotinas. Isso exige reinício/redeploy do serviço; nenhuma configuração de produção é alterada por este repositório.
 
-O comando de inicialização inicia Uvicorn com um worker e usa a porta `PORT` fornecida pelo Render. Configure o health check path como `/health`.
+O comando de inicialização aplica primeiro as migrações (`python -m app.migrar`) e só depois inicia Uvicorn com um worker e usa a porta `PORT` fornecida pelo Render. Configure o health check path como `/health`.
 
 ## 3. Manter um único serviço
 
@@ -23,7 +23,7 @@ Mantenha **uma instância** do serviço web e não aumente o número de workers.
 
 ## 4. Limitações operacionais
 
-As tabelas são criadas pela aplicação no startup (`create_all`), sem migrações versionadas. O filesystem do serviço web no Render é efêmero; os CSVs da Caixa serão obtidos de novo após reinícios. Não configure disco persistente sem avaliar o custo e a retenção desejada. O health check confirma que o processo HTTP responde; não verifica conectividade ou estado do banco.
+As tabelas vêm das migrações do Alembic (`backend/migrations`), aplicadas no arranque por `python -m app.migrar`. Se a migração falhar, a API não arranca e o Render mantém a versão anterior. Uma base que já tem tabelas mas não tem versão do Alembic é recusada: marque-a uma vez com `backend/migrations/producao/marcar_0001_COMMIT.sql` (ver `docs/PLANO_REFACAO.md`). Em desenvolvimento, use `alembic upgrade head` a partir de `backend`. O filesystem do serviço web no Render é efêmero; os CSVs da Caixa serão obtidos de novo após reinícios. Não configure disco persistente sem avaliar o custo e a retenção desejada. O health check confirma que o processo HTTP responde; não verifica conectividade ou estado do banco.
 
 Faça o primeiro deploy e confirme `/health` e `/docs`. Não há URL pública neste guia; ela só existe depois da criação do serviço no Render. Nunca coloque credenciais no repositório.
 
