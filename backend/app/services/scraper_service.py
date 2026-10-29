@@ -2,7 +2,7 @@ import logging
 import time
 
 import re
-from sqlalchemy import and_, not_, or_
+from sqlalchemy import and_, inspect as sa_inspect, not_, or_
 
 from typing import List
 
@@ -66,205 +66,134 @@ class ScraperService:
 
 
 
-        imoveis_salvos = []
-
-
+        itens = []
 
         for imovel_dto in dados_imoveis:
-
             try:
-
-                # 1. Mapeamento explícito de campos (resolve area_util -> area)
-
-                dados_dict = imovel_dto.model_dump(
-
-                    exclude={"imagens", "imagem", "imagem_url"}
-
-                )
-
-
-
-                # Trata equivalência de área
-
-                area_valor = dados_dict.pop("area_util", None) or dados_dict.get("area")
-
-                dados_dict["area"] = area_valor
-
-                if "area_util" in dados_dict:
-
-                    del dados_dict["area_util"]
-
-
-
-                url_imovel = dados_dict.get("url")
-
-
-
-                if url_imovel:
-
-                    url_texto = str(url_imovel).strip()
-
-
-
-                    match_id = re.search(
-
-                        r"hdnimovel=([0-9]+)",
-
-                        url_texto,
-
-                        re.IGNORECASE
-
-                    )
-
-
-
-                    if match_id:
-
-                        url_imovel = (
-
-                            "https://venda-imoveis.caixa.gov.br/"
-
-                            "sistema/detalhe-imovel.asp?hdnimovel="
-
-                            + match_id.group(1)
-
-                        )
-
-                    else:
-
-                        url_imovel = url_texto
-
-
-
-                    dados_dict["url"] = url_imovel
-
-                    # Conta a URL já aqui: mesmo que o salvamento falhe depois, o imóvel
-                    # continua na lista da Caixa e não pode ser tratado como removido.
-                    self.urls_vistas.add(url_imovel)
-
-
-
-
-
-                # 2. Verifica se o imóvel já existe no banco (via URL ou Titulo/Endereco)
-
-                imovel_existente = None
-
-                if url_imovel:
-
-                    imovel_existente = (
-
-                        self.db.query(Imovel)
-
-                        .filter(Imovel.url == url_imovel)
-
-                        .first()
-
-                    )
-
-
-
-                if imovel_existente:
-
-                    # Atualiza os dados existentes
-
-                    for chave, valor in dados_dict.items():
-
-                        if valor is not None:
-
-                            setattr(imovel_existente, chave, valor)
-
-                    imovel_db = imovel_existente
-
-                else:
-
-                    # Cria novo registro
-
-                    imovel_db = Imovel(**dados_dict)
-
-                    self.db.add(imovel_db)
-
-                    self.db.flush()  # Gera o ID para as imagens
-
-
-
-                # 3. Processamento e salvamento das imagens associadas
-
-                urls_imagens = imovel_dto.imagens or []
-
-                if imovel_dto.imagem and imovel_dto.imagem not in urls_imagens:
-
-                    urls_imagens.insert(0, imovel_dto.imagem)
-
-
-
-                for ordem, url_img in enumerate(urls_imagens):
-
-                    if not url_img:
-
-                        continue
-
-
-
-                    img_existente = (
-
-                        self.db.query(ImovelImagem)
-
-                        .filter(
-
-                            ImovelImagem.imovel_id == imovel_db.id,
-
-                            ImovelImagem.url == url_img,
-
-                        )
-
-                        .first()
-
-                    )
-
-
-
-                    if not img_existente:
-
-                        nova_imagem = ImovelImagem(
-
-                            imovel_id=imovel_db.id,
-
-                            url=url_img,
-
-                            ordem=ordem
-
-                        )
-
-                        self.db.add(nova_imagem)
-
-
-
-                self.db.commit()
-
-                self.db.refresh(imovel_db)
-
-                imoveis_salvos.append(imovel_db)
-
-
-
+                itens.append(self._preparar_item(imovel_dto))
             except Exception as e:
-
-                self.db.rollback()
-
                 logger.exception(
                     f"ERRO AO SALVAR IMÓVEL {imovel_dto.titulo}: "
                     f"{type(e).__name__}: {e}"
-
                 )
 
+        imoveis_salvos = []
 
-
-                continue
-
-
+        # Grava em lotes: poucas consultas por lote em vez de várias por imóvel
+        # (cada consulta à base remota custa uma ida e volta pela rede).
+        # Sem recarregar os objetos a cada commit: nenhuma coluna tem valor
+        # gerado pela base além do id, que já fica preenchido.
+        expirar_antes = self.db.expire_on_commit
+        self.db.expire_on_commit = False
+        try:
+            for inicio in range(0, len(itens), self.TAMANHO_LOTE_IMPORTACAO):
+                lote = itens[inicio:inicio + self.TAMANHO_LOTE_IMPORTACAO]
+                try:
+                    imoveis_salvos.extend(self._gravar_lote(lote))
+                except Exception:
+                    self.db.rollback()
+                    # Um imóvel com problema não pode impedir os outros: repete
+                    # o lote um a um e só perde os que falharem.
+                    for item in lote:
+                        try:
+                            imoveis_salvos.extend(self._gravar_lote([item]))
+                        except Exception as e:
+                            self.db.rollback()
+                            logger.exception(
+                                f"ERRO AO SALVAR IMÓVEL {item['dto'].titulo}: "
+                                f"{type(e).__name__}: {e}"
+                            )
+        finally:
+            self.db.expire_on_commit = expirar_antes
 
         return imoveis_salvos
+
+    TAMANHO_LOTE_IMPORTACAO = 200
+
+    def _preparar_item(self, imovel_dto: ImovelScraper) -> dict:
+        """Converte o DTO nos campos a gravar e normaliza a URL do imóvel."""
+        # 1. Mapeamento explícito de campos (resolve area_util -> area)
+        dados_dict = imovel_dto.model_dump(exclude={"imagens", "imagem", "imagem_url"})
+        area_valor = dados_dict.pop("area_util", None) or dados_dict.get("area")
+        dados_dict["area"] = area_valor
+        dados_dict.pop("area_util", None)
+
+        url_imovel = dados_dict.get("url")
+        if url_imovel:
+            url_texto = str(url_imovel).strip()
+            match_id = re.search(r"hdnimovel=([0-9]+)", url_texto, re.IGNORECASE)
+            if match_id:
+                url_imovel = (
+                    "https://venda-imoveis.caixa.gov.br/"
+                    "sistema/detalhe-imovel.asp?hdnimovel="
+                    + match_id.group(1)
+                )
+            else:
+                url_imovel = url_texto
+            dados_dict["url"] = url_imovel
+            # Conta a URL já aqui: mesmo que o salvamento falhe depois, o imóvel
+            # continua na lista da Caixa e não pode ser tratado como removido.
+            self.urls_vistas.add(url_imovel)
+
+        urls_imagens = imovel_dto.imagens or []
+        if imovel_dto.imagem and imovel_dto.imagem not in urls_imagens:
+            urls_imagens.insert(0, imovel_dto.imagem)
+
+        return {"dto": imovel_dto, "dados": dados_dict, "url": url_imovel, "imagens": urls_imagens}
+
+    def _gravar_lote(self, lote: list[dict]) -> List[Imovel]:
+        """Grava um lote com um único commit. Em erro levanta a exceção (sem rollback)."""
+        # 2. Imóveis já existentes, numa só consulta (o de menor id, se houver repetidos).
+        urls = {item["url"] for item in lote if item["url"]}
+        por_url: dict[str, Imovel] = {}
+        if urls:
+            for imovel in (
+                self.db.query(Imovel).filter(Imovel.url.in_(urls)).order_by(Imovel.id).all()
+            ):
+                por_url.setdefault(imovel.url, imovel)
+
+        imagens_existentes: set[tuple[int, str]] = set()
+        ids_existentes = [imovel.id for imovel in por_url.values()]
+        if ids_existentes and any(item["imagens"] for item in lote):
+            imagens_existentes = set(
+                self.db.query(ImovelImagem.imovel_id, ImovelImagem.url)
+                .filter(ImovelImagem.imovel_id.in_(ids_existentes))
+                .all()
+            )
+
+        gravados = []
+        for item in lote:
+            imovel_db = por_url.get(item["url"]) if item["url"] else None
+            if imovel_db is not None:
+                for chave, valor in item["dados"].items():
+                    if valor is not None:
+                        setattr(imovel_db, chave, valor)
+            else:
+                imovel_db = Imovel(**item["dados"])
+                self.db.add(imovel_db)
+                if item["url"]:
+                    por_url[item["url"]] = imovel_db
+            gravados.append((imovel_db, item["imagens"]))
+
+        # Um flush para todo o lote: gera os ids dos novos imóveis.
+        self.db.flush()
+
+        # 3. Imagens associadas (sem repetir as que já existem)
+        com_imagens_novas = []
+        for imovel_db, urls_imagens in gravados:
+            for ordem, url_img in enumerate(urls_imagens):
+                if not url_img or (imovel_db.id, url_img) in imagens_existentes:
+                    continue
+                imagens_existentes.add((imovel_db.id, url_img))
+                self.db.add(ImovelImagem(imovel_id=imovel_db.id, url=url_img, ordem=ordem))
+                com_imagens_novas.append(imovel_db)
+
+        self.db.commit()
+        for imovel_db in com_imagens_novas:
+            # A lista de fotos volta a ser lida da base quando for usada.
+            self.db.expire(imovel_db, ["fotos"])
+
+        return [imovel_db for imovel_db, _ in gravados]
 
 
 
@@ -277,47 +206,38 @@ class ScraperService:
 
         sem_fotos = 0
 
-
-
+        # O id sem tocar na base (um objeto expirado por rollback faria um SELECT).
+        ids = []
         for imovel in imoveis:
+            identidade = sa_inspect(imovel).identity
+            if identidade and identidade[0]:
+                ids.append(identidade[0])
 
-            if not imovel.id:
-
-                continue
-
-
-
-            verificacao = (
-
+        # Verificações e "tem fotos" carregadas em blocos, não uma consulta por imóvel.
+        verificacoes: dict[int, ImovelFotoVerificacao] = {}
+        ids_com_fotos: set[int] = set()
+        unicos = list(dict.fromkeys(ids))
+        for inicio in range(0, len(unicos), 1000):
+            bloco = unicos[inicio:inicio + 1000]
+            for verificacao in (
                 self.db.query(ImovelFotoVerificacao)
-
-                .filter(
-
-                    ImovelFotoVerificacao.imovel_id == imovel.id
-
-                )
-
-                .first()
-
+                .filter(ImovelFotoVerificacao.imovel_id.in_(bloco))
+                .all()
+            ):
+                verificacoes.setdefault(verificacao.imovel_id, verificacao)
+            ids_com_fotos.update(
+                imovel_id for (imovel_id,) in
+                self.db.query(ImovelImagem.imovel_id)
+                .filter(ImovelImagem.imovel_id.in_(bloco))
+                .distinct()
+                .all()
             )
 
+        for imovel_id in ids:
 
+            verificacao = verificacoes.get(imovel_id)
 
-            possui_fotos = (
-
-                self.db.query(ImovelImagem.id)
-
-                .filter(
-
-                    ImovelImagem.imovel_id == imovel.id
-
-                )
-
-                .first()
-
-                is not None
-
-            )
+            possui_fotos = imovel_id in ids_com_fotos
 
 
 
@@ -353,13 +273,14 @@ class ScraperService:
 
                 verificacao = ImovelFotoVerificacao(
 
-                    imovel_id=imovel.id,
+                    imovel_id=imovel_id,
 
                     resultado=resultado,
 
                 )
 
                 self.db.add(verificacao)
+                verificacoes[imovel_id] = verificacao
 
             elif verificacao.resultado != resultado:
 
