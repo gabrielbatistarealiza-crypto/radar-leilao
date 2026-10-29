@@ -15,3 +15,4 @@ from app.models.caixa_pedidos_dia import CaixaPedidosDia
 # tabelas importadas (o teste test_migracoes verifica que não falta nenhuma).
 from app.models.notificacao import Notificacao
 from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
+from app.models.pedido_corretor import PedidoCorretor

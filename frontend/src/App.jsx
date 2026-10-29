@@ -3,6 +3,7 @@ import Login from "./Login";
 import Admin from "./Admin";
 import Oportunidade from "./Oportunidade";
 import MinhasOportunidades from "./MinhasOportunidades";
+import PedidoCorretor from "./PedidoCorretor";
 import Corretor from "./Corretor";
 import StatusCaixa from "./StatusCaixa";
 import Alertas from "./Alertas";
@@ -1675,6 +1676,7 @@ const analise = cenarioSelecionado
                     <dd>{ROTULOS_PAPEL[usuario.tipo] || usuario.tipo || "Não informado"}</dd>
                   </div>
                 </dl>
+                <PedidoCorretor token={token} />
               </div>
             </section>
 
