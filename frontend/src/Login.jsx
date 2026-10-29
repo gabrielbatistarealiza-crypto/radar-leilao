@@ -1,8 +1,11 @@
 import { useState } from "react";
 
+import Registo from "./Registo";
+
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 function Login({ onLogin }) {
+  const [criandoConta, setCriandoConta] = useState(false);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
@@ -52,6 +55,15 @@ function Login({ onLogin }) {
     }
   };
 
+  if (criandoConta) {
+    return (
+      <Registo
+        onRegistado={(token) => onLogin(token)}
+        onVoltar={() => setCriandoConta(false)}
+      />
+    );
+  }
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -87,6 +99,10 @@ function Login({ onLogin }) {
             {carregando ? "Entrando..." : "Entrar"}
           </button>
         </form>
+
+        <button type="button" className="login-alternar" onClick={() => setCriandoConta(true)}>
+          Não tem conta? Criar conta
+        </button>
       </div>
     </div>
   );

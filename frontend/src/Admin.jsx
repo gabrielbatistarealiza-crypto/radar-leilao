@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import PedidosCorretorAdmin from "./PedidosCorretorAdmin";
 import {
   LIMITE_POR_PEDIDO,
   aguardarComParagem,
@@ -790,6 +791,8 @@ function Admin({ usuario, onLogout }) {
                 </div>
               )}
         </section>
+
+        <PedidosCorretorAdmin token={token} onDecidido={carregarUsuarios} />
 
         <section className="admin-section admin-users-section">
               <div className="admin-section-heading">

@@ -14,6 +14,19 @@
 .login-card form button:disabled { opacity: .65; cursor: wait; }
 .login-error { padding: 10px 12px; border-radius: 8px; background: #fef3f2; color: #b42318; font-size: 13px; }
 @media (max-width: 480px) { .login-page { padding: 16px; } .login-card { padding: 24px 20px; } }
+.login-card > button.login-alternar, .login-card form button.login-alternar, .pedido-corretor button.login-alternar { width: 100%; margin-top: 12px; min-height: 0; padding: 8px; border: 0; background: none; color: #173f70; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.login-card form label.registo-opcao { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.login-card form label.registo-opcao input { width: auto; min-height: 0; }
+.registo-aviso, .pedido-corretor-estado { margin: 0; color: #687386; font-size: 13px; }
+.pedido-corretor, .pedido-corretor-estado { margin-top: 16px; }
+.pedido-corretor-form { display: grid; gap: 12px; max-width: 420px; }
+.pedido-corretor-form label { display: grid; gap: 6px; color: #344054; font-size: 14px; font-weight: 600; }
+.pedido-corretor-form input { min-height: 40px; padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 8px; font: inherit; }
+.pedido-corretor-form button[type="submit"] { min-height: 40px; border: 0; border-radius: 8px; background: #173f70; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.admin-pedidos-lista { display: grid; gap: 12px; }
+.admin-pedido-card { display: grid; gap: 6px; padding: 14px 16px; border: 1px solid #e1e6ee; border-radius: 12px; background: #fff; overflow-wrap: anywhere; }
+.admin-pedido-aviso { color: #b54708; font-size: 13px; }
+.admin-pedido-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .alertas-heading h2 { display: flex; align-items: center; gap: 9px; margin: 5px 0; }
 .alertas-heading p, .alertas-vazio { color: #687386; }
 .alertas-form, .alertas-panel { background: #fff; border: 1px solid #e1e6ee; border-radius: 14px; box-shadow: 0 5px 20px #1720330a; }
