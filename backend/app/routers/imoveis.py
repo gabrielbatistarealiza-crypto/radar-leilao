@@ -568,15 +568,18 @@ def listar_imoveis(
 
 
 
+        # Tira os acentos nas duas caixas e deixa o ilike ignorar maiúsculas:
+        # upper() em letras acentuadas depende do locale da base (no locale C
+        # "são" fica "SãO" e a pesquisa por "sao paulo" não encontrava nada).
         query = query.filter(
 
             func.translate(
 
-                func.upper(Imovel.cidade),
+                Imovel.cidade,
 
-                "ÁÀÃÂÉÊÍÓÔÕÚÇ",
+                "ÁÀÃÂÉÊÍÓÔÕÚÇáàãâéêíóôõúç",
 
-                "AAAAEEIOOOUC",
+                "AAAAEEIOOOUCaaaaeeiooouc",
 
             ).ilike(f"%{cidade_normalizada}%")
 
