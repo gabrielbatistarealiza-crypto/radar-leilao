@@ -107,3 +107,4 @@ backend/app/scrapers/dados/_anterior/
 # Registos das execucoes das rotinas da Caixa (scripts/*_caixa*.py e tarefa agendada)
 backend/registos_caixa/
 registo_*_caixa_*.json*
+paginas_caixa/

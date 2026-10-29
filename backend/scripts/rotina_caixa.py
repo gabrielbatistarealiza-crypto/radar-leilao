@@ -55,6 +55,39 @@ INTERVALO_LISTA_MINIMO = 30
 INTERVALO_LISTA_PADRAO = 60
 TABELAS_EXIGIDAS = ("imoveis", "caixa_data_worker_state", "caixa_pedidos_dia")
 SAIDA_PAROU = 2
+# Páginas seguidas que a CAIXA serve sem datas, fotos nem edital (por exemplo, imóvel já
+# vendido ou página genérica): ao fim destas, grava a paragem manual para revisão.
+MAX_PAGINAS_VAZIAS_PADRAO = 3
+
+
+def pagina_vazia(resultado: dict) -> bool:
+    """Volta em que a página foi lida (sem bloqueio) mas não trouxe datas, fotos nem edital."""
+    return bool(
+        resultado.get("imovel_id")
+        and "paragem" not in resultado
+        and not any(resultado.get("datas_da_pagina") or [])
+        and not resultado.get("fotos")
+        and resultado.get("estado_edital") == "SEM_EDITAL_NA_PAGINA"
+    )
+
+
+def guardar_respostas(pedir_real, pasta: Path, guardados: list):
+    """Envolve o pedido HTTP: guarda o corpo de cada página lida (nunca sobrescreve)."""
+    import re
+
+    def pedir(url, tipo):
+        resposta = pedir_real(url, tipo)
+        if tipo == "pagina" and resposta.corpo is not None:
+            pasta.mkdir(parents=True, exist_ok=True)
+            numero = (re.search(r"hdnimovel=(\d+)", url) or [None, "sem_numero"])[1]
+            momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            ficheiro = pasta / f"{momento}_{numero}.html"
+            with open(ficheiro, "xb") as f:
+                f.write(resposta.corpo)
+            guardados.append(ficheiro.name)
+        return resposta
+
+    return pedir
 
 
 def confirmar_producao(motor, url: str) -> tuple[bool, str]:
@@ -102,6 +135,10 @@ def main() -> int:
                    help=f"pedidos de datas nesta execução (0 a {MAX_PEDIDOS_DATAS}; 0 = não corre)")
     p.add_argument("--intervalo-datas", type=int, default=INTERVALO_DATAS_PADRAO,
                    help=f"segundos entre voltas de datas (mínimo {INTERVALO_DATAS_MINIMO})")
+    p.add_argument("--max-paginas-vazias", type=int, default=MAX_PAGINAS_VAZIAS_PADRAO,
+                   help="páginas seguidas sem datas, fotos nem edital antes de parar (1 a 10)")
+    p.add_argument("--pasta-paginas", default=None,
+                   help="onde guardar o HTML das páginas pedidas (padrão: paginas_caixa ao lado do registo)")
     p.add_argument("--registo", default=None, help="ficheiro .jsonl novo para o resultado")
     p.add_argument("--confirmo-contactar-caixa", action="store_true")
     args = p.parse_args()
@@ -116,6 +153,8 @@ def main() -> int:
         sys.exit(f"Recusado: --intervalo-datas mínimo é {INTERVALO_DATAS_MINIMO} s.")
     if args.intervalo_lista < INTERVALO_LISTA_MINIMO:
         sys.exit(f"Recusado: --intervalo-lista mínimo é {INTERVALO_LISTA_MINIMO} s.")
+    if not 1 <= args.max_paginas_vazias <= 10:
+        sys.exit("Recusado: --max-paginas-vazias tem de estar entre 1 e 10.")
 
     variavel = VARIAVEL_URL[args.base]
     url = os.environ.get(variavel, "").strip()
@@ -141,8 +180,12 @@ def main() -> int:
     from app.models.caixa_data_worker_state import CaixaDataWorkerState
     from app.models.caixa_pedidos_dia import CaixaPedidosDia
     from app.models.imovel import Imovel
-    from app.services.caixa_datas_edital import e_paragem_manual, filtro_pendentes
-    from app.services.caixa_datas_worker import limite_diario_pedidos, pedidos_hoje
+    from app.services.caixa_datas_edital import e_paragem_manual, filtro_pendentes, pedir_caixa
+    from app.services.caixa_datas_worker import (
+        limite_diario_pedidos,
+        pedidos_hoje,
+        registrar_paragem_manual,
+    )
     from app.services.caixa_rotinas import executar_importacao, executar_lote_datas
 
     if args.base == "copia" and args.confirmo_contactar_caixa:
@@ -192,20 +235,39 @@ def main() -> int:
                 })
                 parou = bool(download.get("bloqueado") or r.get("aguardando_bloqueio") or r.get("ocupado"))
 
+            pasta_paginas = Path(args.pasta_paginas) if args.pasta_paginas else registo.parent / "paginas_caixa"
+            guardados: list[str] = []
+            pedir = guardar_respostas(pedir_caixa, pasta_paginas, guardados)
             pedidos = 0
             volta = 0
+            vazias_seguidas = 0
             while not parou and pedidos < args.max_pedidos_datas:
                 if volta:
                     time.sleep(args.intervalo_datas)
                 volta += 1
-                r = executar_lote_datas(db, max_pedidos=min(2, args.max_pedidos_datas - pedidos))
+                antes = len(guardados)
+                r = executar_lote_datas(db, max_pedidos=min(2, args.max_pedidos_datas - pedidos), pedir=pedir)
                 pedidos += r.get("pedidos", 0)
-                chaves = ("imovel_id", "pedidos", "atualizados", "fotos_novas", "estado_edital",
-                          "preenchidos_pelo_edital", "paragem", "concluido", "aguardando_bloqueio",
-                          "ocupado", "limite_diario_atingido")
-                linha_registo(f, f"datas {volta}", {k: r[k] for k in chaves if k in r})
+                chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "fotos", "fotos_novas",
+                          "estado_edital", "preenchidos_pelo_edital", "paragem", "concluido",
+                          "aguardando_bloqueio", "ocupado", "limite_diario_atingido")
+                dados = {k: r[k] for k in chaves if k in r}
+                dados["html_guardado"] = guardados[antes:]
+                vazias_seguidas = vazias_seguidas + 1 if pagina_vazia(r) else 0
+                dados["paginas_vazias_seguidas"] = vazias_seguidas
+                linha_registo(f, f"datas {volta}", dados)
                 if r.get("paragem") or r.get("aguardando_bloqueio") or r.get("ocupado") \
                         or r.get("limite_diario_atingido"):
+                    parou = True
+                elif vazias_seguidas >= args.max_paginas_vazias:
+                    # Não é um bloqueio, mas a CAIXA está a servir páginas sem dados: pára
+                    # tudo (aqui e na API) até alguém ver o HTML guardado.
+                    estado = db.get(CaixaDataWorkerState, 1)
+                    registrar_paragem_manual(estado, datetime.utcnow())
+                    db.commit()
+                    linha_registo(f, "paragem", {"paragem": "PAGINAS_SEM_DADOS",
+                                                 "paginas_vazias_seguidas": vazias_seguidas,
+                                                 "pasta_paginas": str(pasta_paginas)})
                     parou = True
                 if r.get("concluido"):
                     break
