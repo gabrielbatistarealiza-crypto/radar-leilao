@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers.imoveis import router as imoveis_router
-from app.database.database import Base, engine
+import app.models  # noqa: F401  (regista todos os modelos)
 from app.models.imovel import (
     Imovel,
     ImovelImagem,
@@ -61,7 +61,8 @@ from app.services.caixa_rotinas import (
 ESPERA_CAIXA_OCUPADA = 60
 
 
-Base.metadata.create_all(bind=engine)
+# As tabelas vêm das migrações (python -m app.migrar, corrido antes do uvicorn no
+# Dockerfile; em desenvolvimento: alembic upgrade head). Já não há create_all aqui.
 
 
 def configurar_logging_da_app():

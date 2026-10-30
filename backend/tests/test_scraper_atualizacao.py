@@ -109,33 +109,40 @@ def test_salva_as_fotos_do_csv_sem_duplicar(rodar, sessao):
 
 # -------------------------------------------------------------- remoção
 
-def test_remove_imovel_que_saiu_da_lista(rodar, sessao, fabrica):
+def test_imovel_que_saiu_da_lista_fica_na_base_fora_da_lista(rodar, sessao, fabrica):
+    # Fase 3: já não se apaga; sai da lista ativa e guarda as fotos.
     saiu = fabrica.imovel(url=URL.format(3), fonte="Caixa")
     fabrica.foto(saiu, "http://x/foto.jpg")
 
     resultado = rodar([dto(1)])
 
     assert resultado["imoveis_removidos"] == 1
-    assert not existe(sessao, 3)
-    assert sessao.query(ImovelImagem).count() == 0  # fotos saem junto
+    sessao.expire_all()
+    marcado = sessao.get(Imovel, saiu.id)
+    assert marcado.na_lista is False and marcado.saiu_da_lista_em is not None
+    assert sessao.query(ImovelImagem).count() == 1
 
 
-def test_preserva_imovel_ausente_que_tem_oportunidade(rodar, sessao, fabrica, cliente):
+def test_imovel_ausente_com_oportunidade_sai_da_lista_e_mantem_a_oportunidade(
+    rodar, sessao, fabrica, cliente
+):
     imovel = fabrica.imovel(url=URL.format(4), fonte="Caixa")
     fabrica.oportunidade(cliente, imovel)
 
     resultado = rodar([dto(1)])
 
-    assert resultado["imoveis_removidos"] == 0
-    assert existe(sessao, 4)
+    assert resultado["imoveis_removidos"] == 1
+    sessao.expire_all()
+    assert sessao.get(Imovel, imovel.id).na_lista is False
     assert sessao.query(Oportunidade).count() == 1
 
 
 def test_download_parcial_nao_remove_nada(rodar, sessao, fabrica):
-    fabrica.imovel(url=URL.format(3), fonte="Caixa")
+    imovel = fabrica.imovel(url=URL.format(3), fonte="Caixa")
     resultado = rodar([dto(1)], estados_baixados=TODAS_AS_UFS[:-1])
     assert resultado["imoveis_removidos"] == 0
-    assert existe(sessao, 3)
+    sessao.expire_all()
+    assert sessao.get(Imovel, imovel.id).na_lista is True
 
 
 def test_lista_vazia_nao_remove_nada(rodar, sessao, fabrica):

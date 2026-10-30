@@ -32,6 +32,9 @@ class CaixaScraper(BaseScraper):
     def __init__(self):
         self.bloqueado = False
         self.driver = None
+        self.pasta_dados = os.path.join(os.path.dirname(__file__), "dados")
+        # None = todos os CSV da pasta; senão só os destas UFs (Lista_imoveis_<UF>.csv).
+        self.ufs_permitidas = None
 
     def coletar_imagens(self, url):
         """Coleta imagens e datas da pÃƒÂ¡gina de detalhe da Caixa."""
@@ -1004,7 +1007,7 @@ class CaixaScraper(BaseScraper):
         resultados = []
         self.bloqueado = False
 
-        pasta_dados = os.path.join(os.path.dirname(__file__), "dados")
+        pasta_dados = self.pasta_dados
 
         if not os.path.exists(pasta_dados):
             print("ERRO: pasta de dados nÃƒÂ£o encontrada.")
@@ -1016,6 +1019,10 @@ class CaixaScraper(BaseScraper):
             if os.path.isfile(os.path.join(pasta_dados, f)) and f.lower().endswith(".csv")
         ]
         arquivos_csv.sort()
+
+        if self.ufs_permitidas is not None:
+            nomes = {f"LISTA_IMOVEIS_{uf.strip().upper()}.CSV" for uf in self.ufs_permitidas}
+            arquivos_csv = [c for c in arquivos_csv if os.path.basename(c).upper() in nomes]
 
         if not arquivos_csv:
             print("ERRO: nenhum arquivo CSV encontrado.")

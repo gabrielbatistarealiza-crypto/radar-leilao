@@ -222,6 +222,36 @@ def test_remocao_dentro_do_limite_continua_a_funcionar(importar, sessao, fabrica
     assert r["imoveis_removidos"] == 1 and r["remocao_recusada"] == 0
 
 
+def test_sem_remocoes_so_conta_os_ausentes(monkeypatch, sessao, fabrica):
+    fabrica.imovel(url=URL.format(3), fonte="Caixa")
+    fabrica.imovel(url=URL.format(4), fonte="Caixa")
+
+    class Baixador:
+        UFS = cl.CaixaListaSegura.UFS
+
+        def baixar_todos(self, *a, **k):
+            return tudo_ok()
+
+    class Scraper:
+        def executar(self):
+            return [dto(1)]
+
+    monkeypatch.setattr(scraper_service, "CaixaDownloader", Baixador)
+    monkeypatch.setattr(scraper_service, "CaixaScraper", Scraper)
+    monkeypatch.setattr(ScraperService, "preparar_fila_fotos_caixa", lambda self, i: {"pendentes": 0})
+
+    r = ScraperService(sessao).atualizar_lista_caixa(remover=False)
+
+    assert r["imoveis_removidos"] == 0 and r["ausentes_da_lista"] == 2
+    assert sessao.query(Imovel).filter(Imovel.fonte == "Caixa").count() == 3
+
+
+def test_ausentes_tambem_aparecem_quando_remove(importar, sessao, fabrica):
+    fabrica.imovel(url=URL.format(3), fonte="Caixa")
+    r = importar([dto(1)], tudo_ok())
+    assert r["imoveis_removidos"] == 1 and r["ausentes_da_lista"] == 1
+
+
 def test_listas_com_datas_de_geracao_diferentes_nao_removem(importar, sessao, fabrica):
     fabrica.imovel(url=URL.format(3), fonte="Caixa")
     download = tudo_ok()

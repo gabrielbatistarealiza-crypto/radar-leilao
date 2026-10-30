@@ -21,9 +21,9 @@ from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 
-from app.models.imovel import Imovel
+from app.models.imovel import Imovel, ImovelEvento
 
-from app.schemas.imovel import ImovelCreate, ImovelResponse, ImoveisPaginados
+from app.schemas.imovel import ImovelCreate, ImovelEvento as ImovelEventoSchema, ImovelResponse, ImoveisPaginados
 
 from app.utils.browser import Browser, CaixaBloqueioError
 from app.services.caixa_acesso import (
@@ -432,6 +432,10 @@ def _serializar_imovel(imovel):
 
         "imagens": imovel.imagens or [],
 
+        "na_lista": imovel.na_lista is not False,
+
+        "saiu_da_lista_em": imovel.saiu_da_lista_em,
+
     }
 
 
@@ -510,7 +514,8 @@ def listar_imoveis(
 
 ):
 
-    query = db.query(Imovel)
+    # Imóveis que saíram da lista da Caixa ficam na base, mas não aparecem na pesquisa.
+    query = db.query(Imovel).filter(Imovel.na_lista.is_(True))
 
     termo_busca = (busca or "").strip()
     if termo_busca:
@@ -1366,6 +1371,19 @@ def processar_fila_fotos_caixa(
 
 
 
+
+
+@router.get("/{imovel_id}/historico", response_model=list[ImovelEventoSchema])
+def historico_imovel(imovel_id: int, db: Session = Depends(get_db)):
+    """Entradas e saídas da lista da Caixa e mudanças de preço, do mais antigo ao mais recente."""
+    if not db.query(Imovel.id).filter(Imovel.id == imovel_id).first():
+        raise HTTPException(status_code=404, detail="Imóvel não encontrado.")
+    return (
+        db.query(ImovelEvento)
+        .filter(ImovelEvento.imovel_id == imovel_id)
+        .order_by(ImovelEvento.momento.asc(), ImovelEvento.id.asc())
+        .all()
+    )
 
 
 @router.get("/{imovel_id}", response_model=ImovelResponse)

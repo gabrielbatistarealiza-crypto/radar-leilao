@@ -59,10 +59,22 @@ class Imovel(ImovelBase):
     atualizado_em: Optional[datetime] = None
     imagens: List[str] = Field(default_factory=list)
     economia_m2: Optional[float] = None
+    # False: saiu da lista da Caixa (continua na base, fora da pesquisa).
+    na_lista: bool = True
+    saiu_da_lista_em: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
+
+class ImovelEvento(BaseModel):
+    tipo: str
+    momento: datetime
+    valor_anterior: Optional[float] = None
+    valor_novo: Optional[float] = None
+
+    class Config:
+        from_attributes = True
 
 
 

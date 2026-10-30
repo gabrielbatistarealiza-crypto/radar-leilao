@@ -147,7 +147,7 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
     criterios = db.query(CriterioAlerta).filter(CriterioAlerta.usuario_id == usuario.id, CriterioAlerta.ativo.is_(True)).all()
     if not criterios:
         return []
-    imoveis = db.query(Imovel).all()
+    imoveis = db.query(Imovel).filter(Imovel.na_lista.is_(True)).all()
     simulacoes = {}
     for criterio in criterios:
         if criterio.simulacao_id:

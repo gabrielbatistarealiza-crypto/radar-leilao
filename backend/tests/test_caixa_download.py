@@ -227,8 +227,10 @@ def test_importacao_com_download_bloqueado_regista_espera_e_nao_le_o_captcha(
     estado = sessao.get(CaixaDataWorkerState, 1)
     assert estado.bloqueado_ate is not None
     assert estado.bloqueios_consecutivos == 1
-    # Só o CSV anterior, válido, estava em dados/ quando o importador leu.
-    assert lidos == ["Lista_imoveis_AC.csv"]
+    # Nenhuma UF foi descarregada nesta execução: o importador nem é chamado,
+    # nem para o CSV anterior que continua em dados/ (era reimportado antes).
+    assert lidos == []
+    assert ficheiros_topo(tmp_path) == ["Lista_imoveis_AC.csv"]
 
 
 def test_importador_ignora_a_pasta_de_reserva(tmp_path, monkeypatch):

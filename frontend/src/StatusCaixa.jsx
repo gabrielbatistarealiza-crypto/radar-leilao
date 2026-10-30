@@ -123,7 +123,7 @@ function StatusCaixa({ usuario }) {
           <strong>{caixa.imoveis_atualizados}</strong>
         </div>
         <div className="status-caixa-item">
-          <span>Imóveis removidos</span>
+          <span>Saíram da lista</span>
           <strong>{caixa.imoveis_removidos}</strong>
         </div>
         <div className="status-caixa-item">
@@ -164,7 +164,7 @@ function StatusCaixa({ usuario }) {
                   <th>Status</th>
                   <th>Estados</th>
                   <th>Processados</th>
-                  <th>Removidos</th>
+                  <th>Saíram da lista</th>
                   <th>Fotos pendentes</th>
                 </tr>
               </thead>
