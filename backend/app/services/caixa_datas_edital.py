@@ -276,6 +276,8 @@ def filtro_pendentes():
     return and_(
         Imovel.fonte.ilike("%caixa%"),
         Imovel.url.isnot(None),
+        # Não gasta pedidos à Caixa com imóveis que já saíram da lista.
+        Imovel.na_lista.is_(True),
         or_(
             and_(licitacao, Imovel.data_licitacao_aberta.is_(None)),
             and_(

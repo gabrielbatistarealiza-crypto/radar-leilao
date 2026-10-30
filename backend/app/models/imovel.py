@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, DateTime, true
 from datetime import datetime
 from sqlalchemy.orm import relationship
 
@@ -45,6 +45,20 @@ class Imovel(Base):
     leiloeiro = Column(String(150), nullable=True)
     processo = Column(String(100), nullable=True)
 
+    # Lista da Caixa: um imóvel que deixa de aparecer numa lista completa não é
+    # apagado; fica na_lista=False (fora da pesquisa) e volta se reaparecer.
+    na_lista = Column(Boolean, nullable=False, default=True, server_default=true())
+    saiu_da_lista_em = Column(DateTime, nullable=True)
+    visto_na_lista_em = Column(DateTime, nullable=True)
+
+    eventos = relationship(
+        "ImovelEvento",
+        back_populates="imovel",
+        cascade="all, delete-orphan",
+        order_by="ImovelEvento.momento",
+        passive_deletes=True,
+    )
+
     fotos = relationship(
         "ImovelImagem",
         back_populates="imovel",
@@ -85,6 +99,28 @@ class ImovelImagem(Base):
     ordem = Column(Integer, nullable=False, default=0)
 
     imovel = relationship("Imovel", back_populates="fotos")
+
+class ImovelEvento(Base):
+    """Histórico do imóvel na lista da Caixa: entrou, saiu, voltou, mudou de preço."""
+
+    __tablename__ = "imovel_eventos"
+
+    ENTROU = "ENTROU_NA_LISTA"
+    SAIU = "SAIU_DA_LISTA"
+    VOLTOU = "VOLTOU_A_LISTA"
+    PRECO = "PRECO_ALTERADO"
+
+    id = Column(Integer, primary_key=True, index=True)
+    imovel_id = Column(
+        Integer, ForeignKey("imoveis.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tipo = Column(String(30), nullable=False)
+    momento = Column(DateTime, nullable=False, default=datetime.utcnow)
+    valor_anterior = Column(Float, nullable=True)
+    valor_novo = Column(Float, nullable=True)
+
+    imovel = relationship("Imovel", back_populates="eventos")
+
 
 class ImovelFotoVerificacao(Base):
     __tablename__ = "imovel_foto_verificacoes"

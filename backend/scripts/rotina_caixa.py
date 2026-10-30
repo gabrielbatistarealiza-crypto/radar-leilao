@@ -133,7 +133,8 @@ def main() -> int:
                    help="descarrega as listas com um browser real (Selenium), 1 tentativa por UF; "
                         "só neste computador (decisão de 29/10/2026)")
     p.add_argument("--sem-remocoes", action="store_true",
-                   help="importa a lista sem apagar imóveis ausentes (só os conta)")
+                   help="importa a lista sem tirar da lista os imóveis ausentes (só os conta); "
+                        "nunca se apaga nenhum imóvel")
     p.add_argument("--intervalo-lista", type=int, default=INTERVALO_LISTA_PADRAO,
                    help=f"segundos entre UFs (mínimo {INTERVALO_LISTA_MINIMO})")
     p.add_argument("--max-pedidos-datas", type=int, default=0,
@@ -216,11 +217,11 @@ def main() -> int:
                       if inspect(motor).has_table("caixa_pedidos_dia") else 0)
             print("ENSAIO: nada foi pedido à CAIXA nem gravado.")
             if args.lista:
-                remocoes = ("desligadas (só conta os ausentes)" if args.sem_remocoes
-                            else "só com as 27 UFs da mesma geração e até max(50, 5%)")
+                remocoes = ("desligado (só conta os ausentes)" if args.sem_remocoes
+                            else "só com as 27 UFs da mesma geração e até max(50, 20%); nada é apagado")
                 modo = "browser (Selenium), 1 tentativa por UF" if args.lista_com_browser else "requests"
                 print(f"  lista: {args.max_ufs} UF(s), {args.intervalo_lista} s entre UFs, {modo}; "
-                      f"remoções: {remocoes}")
+                      f"tirar ausentes da lista: {remocoes}")
             if args.max_pedidos_datas:
                 print(f"  datas: até {args.max_pedidos_datas} pedido(s), {args.intervalo_datas} s entre voltas; "
                       f"hoje já {usados} de {limite_diario_pedidos()} (limite diário)")

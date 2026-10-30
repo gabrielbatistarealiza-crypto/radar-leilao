@@ -4,6 +4,7 @@ import Admin from "./Admin";
 import Oportunidade from "./Oportunidade";
 import MinhasOportunidades from "./MinhasOportunidades";
 import PedidoCorretor from "./PedidoCorretor";
+import { avisoForaDaLista } from "./foraDaLista";
 import Corretor from "./Corretor";
 import StatusCaixa from "./StatusCaixa";
 import Alertas from "./Alertas";
@@ -2979,6 +2980,12 @@ const analise = cenarioSelecionado
               <span className="auction-badge">LEILÃO SFI</span>
 
               <h2>{imovelDetalhes.titulo || "Imóvel"}</h2>
+
+              {avisoForaDaLista(imovelDetalhes) && (
+                <div className="aviso-fora-da-lista" role="status">
+                  {avisoForaDaLista(imovelDetalhes)}
+                </div>
+              )}
 
               <div className="details-location">
                 <MapPin size={17} />

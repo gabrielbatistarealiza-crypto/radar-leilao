@@ -1,6 +1,6 @@
 from app.models.usuario import Usuario
 from app.models.corretor import Corretor
-from app.models.imovel import Imovel, ImovelImagem, ImovelFotoVerificacao
+from app.models.imovel import Imovel, ImovelEvento, ImovelImagem, ImovelFotoVerificacao
 from app.models.atualizacao_caixa import AtualizacaoCaixa
 from app.models.oportunidade import Oportunidade
 from app.models.negociacao import Negociacao

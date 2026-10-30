@@ -25,6 +25,7 @@
 .login-card form label.registo-opcao input[type="checkbox"]:checked::after { content: ""; width: 5px; height: 10px; border: solid #173f70; border-width: 0 2.5px 2.5px 0; transform: translateY(-1px) rotate(45deg); }
 .login-card form label.registo-opcao input[type="checkbox"]:focus-visible { outline: 2px solid #173f70; outline-offset: 2px; }
 .registo-aviso, .pedido-corretor-estado { margin: 0; color: #687386; font-size: 13px; }
+.aviso-fora-da-lista { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid #fedf89; border-radius: 8px; background: #fffaeb; color: #93370d; font-size: 14px; font-weight: 600; }
 .pedido-corretor, .pedido-corretor-estado { margin-top: 16px; }
 .pedido-corretor-form { display: grid; gap: 12px; max-width: 420px; }
 .pedido-corretor-form label { display: grid; gap: 6px; color: #344054; font-size: 14px; font-weight: 600; }

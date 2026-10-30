@@ -2,7 +2,8 @@ import logging
 import time
 
 import re
-from sqlalchemy import and_, inspect as sa_inspect, not_, or_
+from sqlalchemy import and_, insert, inspect as sa_inspect, not_, or_, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from typing import List
 
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 
 
 
-from app.models.imovel import Imovel, ImovelImagem, ImovelFotoVerificacao
+from app.models.imovel import Imovel, ImovelEvento, ImovelImagem, ImovelFotoVerificacao
 
 from app.schemas.imovel_scraper import ImovelScraper
 
@@ -57,6 +58,7 @@ class ScraperService:
         """
 
         self.urls_vistas = set()
+        self._agora_importacao = datetime.utcnow()
 
         scraper = CaixaScraper()
         if ufs is not None:
@@ -167,22 +169,51 @@ class ScraperService:
                 .all()
             )
 
+        agora = getattr(self, "_agora_importacao", None) or datetime.utcnow()
         gravados = []
+        eventos = []  # (imóvel, tipo, valor anterior, valor novo); ids só depois do flush
         for item in lote:
             imovel_db = por_url.get(item["url"]) if item["url"] else None
             if imovel_db is not None:
+                preco_antes = imovel_db.valor_leilao
                 for chave, valor in item["dados"].items():
                     if valor is not None:
                         setattr(imovel_db, chave, valor)
+                preco_novo = item["dados"].get("valor_leilao")
+                if (preco_antes is not None and preco_novo is not None
+                        and abs(preco_novo - preco_antes) >= 0.01):
+                    eventos.append((imovel_db, ImovelEvento.PRECO, preco_antes, preco_novo))
+                if imovel_db.na_lista is False:
+                    imovel_db.na_lista = True
+                    imovel_db.saiu_da_lista_em = None
+                    eventos.append((imovel_db, ImovelEvento.VOLTOU, None, None))
             else:
-                imovel_db = Imovel(**item["dados"])
+                imovel_db = Imovel(**item["dados"], na_lista=True, visto_na_lista_em=agora)
                 self.db.add(imovel_db)
                 if item["url"]:
                     por_url[item["url"]] = imovel_db
+                eventos.append((imovel_db, ImovelEvento.ENTROU, None, item["dados"].get("valor_leilao")))
             gravados.append((imovel_db, item["imagens"]))
 
         # Um flush para todo o lote: gera os ids dos novos imóveis.
         self.db.flush()
+
+        # "Visto na lista" de todo o lote num só UPDATE (e não um por imóvel); nos
+        # objetos em memória o valor é posto sem os marcar como alterados.
+        ids_lote = list({imovel_db.id for imovel_db, _ in gravados})
+        self.db.execute(
+            update(Imovel).where(Imovel.id.in_(ids_lote)).values(visto_na_lista_em=agora),
+            execution_options={"synchronize_session": False},
+        )
+        for imovel_db, _ in gravados:
+            set_committed_value(imovel_db, "visto_na_lista_em", agora)
+
+        if eventos:
+            self.db.execute(insert(ImovelEvento), [
+                {"imovel_id": imovel_db.id, "tipo": tipo, "momento": agora,
+                 "valor_anterior": anterior, "valor_novo": novo}
+                for imovel_db, tipo, anterior, novo in eventos
+            ])
 
         # 3. Imagens associadas (sem repetir as que já existem)
         com_imagens_novas = []
@@ -312,9 +343,11 @@ class ScraperService:
 
 
 
-    # Nunca remove de uma vez mais do que isto (proteção contra listas incompletas).
+    # Nunca tira da lista ativa de uma vez mais do que isto (proteção contra listas
+    # incompletas). Nada é apagado: quem volta à lista reaparece, por isso o limite
+    # é mais largo do que era quando os imóveis eram apagados (5%).
     LIMITE_REMOCAO_MINIMO = 50
-    LIMITE_REMOCAO_FRACAO = 0.05
+    LIMITE_REMOCAO_FRACAO = 0.20
 
     def _marcar_descarga_em_curso(self) -> None:
         """Grava (com commit) a paragem manual ANTES de contactar a CAIXA.
@@ -437,28 +470,25 @@ class ScraperService:
 
             if estados_baixados == estados_esperados and urls_ativas and geracao_unica:
 
-                ausentes, limite = self._contar_ausentes(urls_ativas)
+                ids_ausentes, limite = self._ausentes_na_lista(urls_ativas)
+                ausentes = len(ids_ausentes)
                 ausentes_da_lista = ausentes
                 if not remover:
                     logger.info(
-                        "Limpeza de imoveis Caixa desligada nesta execucao: %s ausentes "
-                        "da lista (nada removido).",
+                        "Imoveis Caixa fora da lista NAO marcados nesta execucao: %s ausentes.",
                         ausentes,
                     )
                 elif ausentes > limite:
                     remocao_recusada = ausentes
                     logger.warning(
-                        "Limpeza de imoveis Caixa RECUSADA: %s ausentes da lista "
+                        "Marcacao de imoveis Caixa fora da lista RECUSADA: %s ausentes "
                         "(limite %s). Rever manualmente.",
                         ausentes,
                         limite,
                     )
                 else:
-                    removidos = self._remover_imoveis_caixa_inativos(
-
-                        urls_ativas
-
-                    )
+                    # "Removidos" da lista ativa: ficam na base com na_lista=False.
+                    removidos = self._marcar_fora_da_lista(ids_ausentes, datetime.utcnow())
 
             else:
 
@@ -600,6 +630,7 @@ class ScraperService:
         consulta = self.db.query(Imovel).filter(
             Imovel.fonte.ilike("%caixa%"),
             Imovel.url.isnot(None),
+            Imovel.na_lista.is_(True),
             pendencia_data,
         )
         if depois_id is not None:
@@ -718,69 +749,38 @@ class ScraperService:
         }
 
 
-    def _contar_ausentes(self, urls_ativas: set[str]) -> tuple[int, int]:
-        """Quantos imóveis Caixa da base faltam na lista e o limite de remoção."""
-        urls = [
-            url for (url,) in self.db.query(Imovel.url).filter(
-                Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)
-            )
-        ]
-        ausentes = sum(1 for url in urls if url not in urls_ativas)
-        limite = max(self.LIMITE_REMOCAO_MINIMO, int(len(urls) * self.LIMITE_REMOCAO_FRACAO))
-        return ausentes, limite
-
-    def _remover_imoveis_caixa_inativos(self, urls_ativas: set[str]) -> int:
-        """Remove imóveis Caixa inativos sem apagar histórico comercial."""
-
-        candidatos = (
-            self.db.query(Imovel)
+    def _ausentes_na_lista(self, urls_ativas: set[str]) -> tuple[list[int], int]:
+        """Ids dos imóveis Caixa ainda na lista ativa que faltam na lista nova, e o limite."""
+        linhas = (
+            self.db.query(Imovel.id, Imovel.url)
             .filter(
                 Imovel.fonte.ilike("%caixa%"),
                 Imovel.url.isnot(None),
+                Imovel.na_lista.is_(True),
             )
             .all()
         )
+        ausentes = [imovel_id for imovel_id, url in linhas if url not in urls_ativas]
+        limite = max(self.LIMITE_REMOCAO_MINIMO, int(len(linhas) * self.LIMITE_REMOCAO_FRACAO))
+        return ausentes, limite
 
-        inativos = [
-            imovel
-            for imovel in candidatos
-            if imovel.url not in urls_ativas
-        ]
-
-        removidos = 0
-
-        for imovel in inativos:
-            # Preserva imóveis ligados a oportunidades ou negociações.
-            tem_oportunidades = (
-                self.db.query(Oportunidade.id)
-                .filter(Oportunidade.imovel_id == imovel.id)
-                .first()
-                is not None
+    def _marcar_fora_da_lista(self, ids: list[int], agora: datetime) -> int:
+        """Tira da lista ativa (na_lista=False) sem apagar nada; regista o evento."""
+        for inicio in range(0, len(ids), 1000):
+            bloco = ids[inicio:inicio + 1000]
+            self.db.execute(
+                update(Imovel)
+                .where(Imovel.id.in_(bloco))
+                .values(na_lista=False, saiu_da_lista_em=agora),
+                execution_options={"synchronize_session": False},
             )
-
-            if tem_oportunidades:
-                logger.warning(
-                    "Imóvel Caixa %s ausente da lista atual, "
-                    "mas preservado por ter oportunidades associadas.",
-                    imovel.id,
-                )
-                continue
-
-            self.db.query(ImovelFotoVerificacao).filter(
-                ImovelFotoVerificacao.imovel_id == imovel.id
-            ).delete(synchronize_session=False)
-
-            self.db.query(ImovelImagem).filter(
-                ImovelImagem.imovel_id == imovel.id
-            ).delete(synchronize_session=False)
-
-            self.db.delete(imovel)
-            removidos += 1
-
-        if removidos:
+            self.db.execute(
+                insert(ImovelEvento),
+                [{"imovel_id": i, "tipo": ImovelEvento.SAIU, "momento": agora} for i in bloco],
+            )
+        if ids:
             self.db.commit()
-
-        return removidos
+        return len(ids)
 
 
 
@@ -816,6 +816,8 @@ class ScraperService:
                 ImovelFotoVerificacao.resultado == "PENDENTE",
 
                 Imovel.url.isnot(None),
+
+                Imovel.na_lista.is_(True),
 
             )
 

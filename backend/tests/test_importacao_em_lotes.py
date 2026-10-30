@@ -75,9 +75,9 @@ def test_numero_de_consultas_nao_cresce_com_os_imoveis(importar, sessao, fabrica
     _, imoveis = importar([dto(n) for n in range(300)])
 
     assert len(imoveis) == 300
-    # 2 lotes de 200: 1 SELECT e no máximo um UPDATE agrupado por lote
-    # (antes: 2 consultas por imóvel, ou seja 600).
-    assert len(contador) <= 4, contador
+    # 2 lotes de 200: por lote 1 SELECT, no máximo um UPDATE agrupado dos campos
+    # alterados e 1 UPDATE de "visto na lista" (antes: 2 consultas por imóvel, 600).
+    assert len(contador) <= 6, contador
     sessao.expire_all()
     assert sessao.query(Imovel).count() == 300
     assert por_numero(sessao, 0).valor_leilao == pytest.approx(100000.0)
