@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -169,16 +169,11 @@ def dashboard_admin(
                 func.sum(case((Usuario.tipo == "corretor", 1), else_=0)),
                 0,
             ),
-            # Um CASE por linha conta o usuário uma vez, mesmo se as duas
-            # condições de administrador forem verdadeiras.
             func.coalesce(
                 func.sum(
                     case(
                         (
-                            or_(
-                                Usuario.admin.is_(True),
-                                Usuario.tipo == "admin",
-                            ),
+                            Usuario.tipo == "admin",
                             1,
                         ),
                         else_=0,
@@ -294,7 +289,6 @@ def criar_usuario_admin(
         nome=dados.nome,
         email=dados.email,
         senha=gerar_hash(dados.senha),
-        admin=(tipo == "admin"),
         tipo=tipo,
     )
 
@@ -365,13 +359,11 @@ def atualizar_usuario_admin(
             )
 
         usuario.tipo = novo_tipo
-        usuario.admin = novo_tipo == "admin"
 
-    # Administração
+    # Administração (o papel vive só em `tipo`)
     if dados.admin is not None:
         # Promover
         if dados.admin:
-            usuario.admin = True
             usuario.tipo = "admin"
 
         # Revogar
@@ -381,10 +373,7 @@ def atualizar_usuario_admin(
             if eh_admin_atual:
                 total_admins = (
                     db.query(Usuario)
-                    .filter(
-                        (Usuario.admin.is_(True))
-                        | (Usuario.tipo == "admin")
-                    )
+                    .filter(Usuario.tipo == "admin")
                     .count()
                 )
 
@@ -397,9 +386,7 @@ def atualizar_usuario_admin(
                         ),
                     )
 
-            usuario.admin = False
-
-            # Se era admin, deixa de ser admin também no tipo.
+            # Deixa de ser admin: volta a cliente.
             if usuario.tipo == "admin":
                 usuario.tipo = "cliente"
 
@@ -436,10 +423,7 @@ def excluir_usuario_admin(
     if usuario_e_admin(usuario):
         total_admins = (
             db.query(Usuario)
-            .filter(
-                (Usuario.admin.is_(True))
-                | (Usuario.tipo == "admin")
-            )
+            .filter(Usuario.tipo == "admin")
             .count()
         )
 

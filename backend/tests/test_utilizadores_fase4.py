@@ -13,19 +13,43 @@ def cabecalho(token):
 
 # ------------------------------------------------------------- papel no tipo
 
-def test_admin_e_derivado_do_tipo_e_a_coluna_antiga_acompanha(sessao):
-    u = Usuario(nome="A", email="a@teste.com", senha="x", tipo="cliente", admin=False)
+def test_admin_e_derivado_do_tipo(sessao):
+    u = Usuario(nome="A", email="a@teste.com", senha="x", tipo="cliente")
     sessao.add(u)
     sessao.commit()
-    assert u.admin is False and u.admin_legado is False
+    assert u.admin is False
 
     u.admin = True
     sessao.commit()
-    assert u.tipo == "admin" and u.admin_legado is True
+    assert u.tipo == "admin"
 
     u.tipo = "corretor"
     sessao.commit()
-    assert u.admin is False and u.admin_legado is False
+    assert u.admin is False
+
+
+def test_coluna_antiga_admin_nao_e_lida_nem_escrita(sessao, motor):
+    # Passo A da remoção: com esta versão no ar a migração pode apagar a coluna.
+    import re
+
+    from sqlalchemy import event
+
+    comandos = []
+
+    def guardar(conn, cursor, sql, *resto):
+        comandos.append(sql)
+
+    event.listen(motor, "before_cursor_execute", guardar)
+    try:
+        sessao.add(Usuario(nome="A", email="a@teste.com", senha="x", tipo="admin"))
+        sessao.commit()
+        sessao.expire_all()
+        assert sessao.query(Usuario).filter(Usuario.admin.is_(True)).one().email == "a@teste.com"
+    finally:
+        event.remove(motor, "before_cursor_execute", guardar)
+    sql = [c for c in comandos if "usuarios" in c]
+    # "admin" como coluna: "usuarios.admin" ou "(…, admin, …)" no INSERT.
+    assert sql and not any(re.search(r"usuarios\.admin\b|[(,]\s*admin\b", c) for c in sql), sql
 
 
 def test_desligar_admin_volta_a_cliente(sessao):

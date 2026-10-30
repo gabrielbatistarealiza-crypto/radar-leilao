@@ -136,7 +136,6 @@ def criar_usuario(sessao, email, tipo="cliente"):
         email=email,
         senha=_HASH,
         tipo=tipo,
-        admin=(tipo == "admin"),
     )
     sessao.add(usuario)
     sessao.commit()

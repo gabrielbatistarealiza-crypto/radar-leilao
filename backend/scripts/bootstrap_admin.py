@@ -134,7 +134,6 @@ def main() -> int:
                 nome=nome,
                 email=email,
                 senha=gerar_hash(senha),
-                admin=True,
                 tipo="admin",
             )
         )

@@ -44,7 +44,6 @@ def main() -> None:
                 nome="Usuário Mobile de Teste",
                 email=TEST_EMAIL,
                 senha=gerar_hash(TEST_PASSWORD),
-                admin=False,
                 tipo="cliente",
             )
             db.add(user)
@@ -57,7 +56,6 @@ def main() -> None:
                 nome="Segundo Usuário Mobile de Teste",
                 email=OTHER_TEST_EMAIL,
                 senha=gerar_hash(OTHER_TEST_PASSWORD),
-                admin=False,
                 tipo="cliente",
             )
             db.add(other_user)
