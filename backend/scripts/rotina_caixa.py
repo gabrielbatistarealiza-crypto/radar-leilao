@@ -244,6 +244,11 @@ def main() -> int:
                         "SEM contactar a CAIXA")
     p.add_argument("--link-edital", default=None,
                    help="com --aplicar-edital: link do edital, se o nome do ficheiro não for EL....PDF")
+    p.add_argument("--resumo-editais", action="store_true",
+                   help="só lê a base (sem CAIXA): pendentes de datas, último edital aplicado, "
+                        "editais a experimentar e PDFs da pasta Editais por aplicar")
+    p.add_argument("--pasta-editais", default=str(RAIZ_BACKEND.parent / "Editais"),
+                   help="pasta dos PDFs dos editais (padrão: Editais na raiz do projeto)")
     p.add_argument("--saltar-incoerentes", action="store_true",
                    help="com --aplicar-edital: imóveis com datas futuras diferentes das do edital "
                         "ficam como estão (listados no resultado) em vez de recusar o edital inteiro")
@@ -260,14 +265,15 @@ def main() -> int:
         args.lista = True
 
     sem_caixa = [nome for nome, ligado in (("--importar-descarregados", args.importar_descarregados),
-                                           ("--aplicar-edital", bool(args.aplicar_edital))) if ligado]
+                                           ("--aplicar-edital", bool(args.aplicar_edital)),
+                                           ("--resumo-editais", args.resumo_editais)) if ligado]
     if args.saltar_incoerentes and not args.aplicar_edital:
         sys.exit("Recusado: --saltar-incoerentes só existe com --aplicar-edital.")
     if len(sem_caixa) > 1 or (sem_caixa and (args.lista or args.max_pedidos_datas)):
         sys.exit(f"Recusado: {' e '.join(sem_caixa)} não se junta(m) a outras etapas.")
     if not args.lista and args.max_pedidos_datas == 0 and not sem_caixa:
-        sys.exit("Recusado: indique --lista, --max-pedidos-datas N, --importar-descarregados "
-                 "ou --aplicar-edital PDF.")
+        sys.exit("Recusado: indique --lista, --max-pedidos-datas N, --importar-descarregados, "
+                 "--aplicar-edital PDF ou --resumo-editais.")
     if not 1 <= args.max_ufs <= MAX_UFS:
         sys.exit(f"Recusado: --max-ufs tem de estar entre 1 e {MAX_UFS}.")
     if not 0 <= args.max_pedidos_datas <= MAX_PEDIDOS_DATAS:
@@ -328,6 +334,22 @@ def main() -> int:
             return importar_descarregados(db, args, onde)
         if args.aplicar_edital:
             return aplicar_edital(db, args, onde)
+        if args.resumo_editais:
+            from app.services.caixa_datas_edital import resumo_editais
+
+            r = resumo_editais(db, args.pasta_editais)
+            db.rollback()
+            print(json.dumps({"etapa": "resumo_editais", "base": onde, **r}, ensure_ascii=False))
+            if r.get("pdfs_por_aplicar"):
+                print("PDFs na pasta ainda por aplicar (ensaio primeiro; os já passados são recusados):")
+                for nome in r["pdfs_por_aplicar"]:
+                    print(f"  python scripts/rotina_caixa.py --base {args.base} --aplicar-edital "
+                          f"\"{Path(args.pasta_editais) / nome}\"")
+            if r.get("experimentar"):
+                print("Editais seguintes a experimentar no browser (404 = ainda não publicado):")
+                for link in r["experimentar"]:
+                    print(f"  {link}")
+            return 0
 
         if not args.confirmo_contactar_caixa:
             from sqlalchemy import inspect
