@@ -386,6 +386,50 @@ def _ler_e_aplicar_edital(db, imovel, link: str, pedir, resultado: dict, datas_p
     return resultado
 
 
+_RE_NOME_EDITAL = re.compile(r"^(EL[0-9A-Z]+)", re.IGNORECASE)
+
+
+def link_do_ficheiro_edital(nome_ficheiro: str) -> str | None:
+    """Link do edital a partir do nome do PDF guardado (ex.: EL00520226CPARE.PDF ou el00520226cpare (1).pdf).
+
+    Tem de ser igual ao que as páginas mostram: é por ele que o worker sabe que
+    o edital já foi lido.
+    """
+    m = _RE_NOME_EDITAL.match(nome_ficheiro.strip())
+    return f"https://{DOMINIO_CAIXA}/editais/{m.group(1).upper()}.PDF" if m else None
+
+
+def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False) -> dict:
+    """Aplica um edital já descarregado (PDF no disco), sem contactar a CAIXA.
+
+    Mesmas verificações do worker (_aplicar_edital): preenche quem não tem datas,
+    renova datas já passadas se o edital for por acontecer e pára (nada gravado)
+    se houver datas diferentes ainda por acontecer. Sem `gravar` faz rollback.
+    """
+    edital = ler_edital(corpo)
+    if edital is None:
+        return {"recusado": "EDITAL_NAO_INTERPRETAVEL"}
+    resumo = {"link": link, "data_primeiro_leilao": edital.data_primeiro_leilao.isoformat(),
+              "data_segundo_leilao": edital.data_segundo_leilao.isoformat(),
+              "numeros_no_edital": len(edital.numeros), "sem_venda_no_edital": len(edital.numeros_sem_venda)}
+    if edital.data_segundo_leilao < _hoje():
+        # Datas já passadas seriam mostradas como se fossem o próximo leilão.
+        return {**resumo, "recusado": "EDITAL_JA_PASSOU"}
+    membros = [
+        i for i in db.query(Imovel).filter(Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)).all()
+        if numero_do_imovel(i.url) in edital.numeros | edital.numeros_sem_venda
+    ]
+    if not membros:
+        db.rollback()
+        return {**resumo, "recusado": "NENHUM_IMOVEL_DA_BASE_NO_EDITAL"}
+    aplicado = _aplicar_edital(db, edital, link, min(membros, key=lambda i: i.id))
+    if "paragem" in aplicado or not gravar:
+        db.rollback()
+    else:
+        db.commit()
+    return {**resumo, **aplicado, "gravado": gravar and "paragem" not in aplicado}
+
+
 def processar_edital_pendente(db, imovel_id: int, link: str, pedir=None, antes_de_pedir=None) -> dict:
     """Só o edital que ficou adiado numa volta anterior (1 GET, nunca a página).
 

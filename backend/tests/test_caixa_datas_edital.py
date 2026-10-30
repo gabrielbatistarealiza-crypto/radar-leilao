@@ -289,6 +289,89 @@ def test_edital_adiado_que_nao_confere_com_a_pagina_para(sessao, fabrica):
     assert r["paragem"] == "PAGINA_E_EDITAL_DIFERENTES"
 
 
+# ------------------------------------------ edital descarregado no browser
+
+@pytest.mark.parametrize("nome, link", [
+    ("EL00520226CPARE.PDF", "https://venda-imoveis.caixa.gov.br/editais/EL00520226CPARE.PDF"),
+    ("el00520226cpare (1).pdf", "https://venda-imoveis.caixa.gov.br/editais/EL00520226CPARE.PDF"),
+    ("edital.pdf", None),
+])
+def test_link_do_ficheiro_edital(nome, link):
+    assert ce.link_do_ficheiro_edital(nome) == link
+
+
+def test_edital_local_ja_passado_e_recusado(sessao, fabrica, hoje_30_10):
+    a = imovel(fabrica, N1)
+
+    r = ce.aplicar_edital_local(sessao, pdf([N1]), EDITAL_A, gravar=True)  # 20 e 26/10
+
+    recarregar(sessao, a)
+    assert r["recusado"] == "EDITAL_JA_PASSOU" and a.data_primeiro_leilao is None
+
+
+@pytest.fixture()
+def hoje_1_10(monkeypatch):
+    monkeypatch.setattr(ce, "_hoje", lambda: date(2026, 10, 1))
+
+
+def test_edital_local_em_ensaio_nao_grava_nada(sessao, fabrica, hoje_1_10):
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+
+    r = ce.aplicar_edital_local(sessao, pdf([N1, N2, "99999999"]), EDITAL_A, gravar=False)
+
+    recarregar(sessao, a, b)
+    assert r["numeros_no_edital"] == 3 and r["membros_na_base"] == 2
+    assert r["preenchidos_pelo_edital"] == 2 and r["gravado"] is False
+    assert a.data_primeiro_leilao is None and a.link_edital is None
+
+
+def test_edital_local_grava_e_renova_datas_passadas(sessao, fabrica, hoje_30_10):
+    from app.models.imovel import ImovelEvento
+
+    novo = imovel(fabrica, N1)
+    antigo = imovel(fabrica, N2, data_primeiro_leilao=D1, data_segundo_leilao=D2)
+    fora = imovel(fabrica, N3)
+
+    r = ce.aplicar_edital_local(sessao, pdf([N1, N2], d1=NOVO1, d2=NOVO2), EDITAL_A, gravar=True)
+
+    recarregar(sessao, novo, antigo, fora)
+    assert r["gravado"] is True and r["preenchidos_pelo_edital"] == 1 and r["renovados_pelo_edital"] == 1
+    for i in (novo, antigo):
+        assert (i.data_primeiro_leilao, i.data_segundo_leilao, i.link_edital) == (NOVO1, NOVO2, EDITAL_A)
+    assert fora.data_primeiro_leilao is None
+    assert sessao.query(ImovelEvento).filter(ImovelEvento.tipo == ImovelEvento.DATAS).count() == 1
+
+
+def test_edital_local_incoerente_nao_grava(sessao, fabrica, hoje_30_10):
+    a = imovel(fabrica, N1)
+    imovel(fabrica, N2, data_primeiro_leilao=date(2026, 11, 3), data_segundo_leilao=date(2026, 11, 9))
+
+    r = ce.aplicar_edital_local(sessao, pdf([N1, N2], d1=NOVO1, d2=NOVO2), EDITAL_A, gravar=True)
+
+    recarregar(sessao, a)
+    assert r["paragem"] == "EDITAL_INCOERENTE" and r["gravado"] is False
+    assert a.data_primeiro_leilao is None and a.link_edital is None
+
+
+@pytest.mark.parametrize("corpo, motivo", [
+    (b"<html>bloqueio</html>", "EDITAL_NAO_INTERPRETAVEL"),
+    (pdf(["99999999"]), "NENHUM_IMOVEL_DA_BASE_NO_EDITAL"),
+])
+def test_edital_local_recusado(sessao, fabrica, corpo, motivo, hoje_1_10):
+    imovel(fabrica, N1)
+    assert ce.aplicar_edital_local(sessao, corpo, EDITAL_A, gravar=True)["recusado"] == motivo
+
+
+def test_edital_aplicado_a_mao_e_reconhecido_pelo_worker(sessao, fabrica, hoje_1_10):
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    ce.aplicar_edital_local(sessao, pdf([N1]), EDITAL_A, gravar=True)
+    rede = Rede({b.url: pagina(D1, D2)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1)
+
+    assert r["estado_edital"] == "JA_LIDO" and rede.pedidos == [(b.url, "pagina")]
+
+
 # --------------------------------------- edital novo para imóveis não vendidos
 
 NOVO1, NOVO2 = date(2026, 11, 17), date(2026, 11, 24)
