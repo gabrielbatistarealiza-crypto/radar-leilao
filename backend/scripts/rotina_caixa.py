@@ -28,6 +28,8 @@ Rode a partir da pasta backend/ (exemplos):
       ensaio: mostra o estado e o que seria feito
   python scripts/rotina_caixa.py --base producao --lista --max-pedidos-datas 10 --confirmo-contactar-caixa
       lista das 27 UFs (60 s entre UFs) e até 10 pedidos de datas (600 s entre voltas)
+  python scripts/rotina_caixa.py --base producao --importar-descarregados --confirmo-gravar
+      importa os 27 CSV já descarregados (menos de 12 h), sem contactar a CAIXA
 
 Código de saída: 0 terminou normalmente; 2 parou (paragem manual, espera,
 outra consulta em curso ou limite diário); outros valores = recusado/erro.
@@ -115,6 +117,62 @@ def confirmar_producao(motor, url: str) -> tuple[bool, str]:
     return True, f"{base} (Render)"
 
 
+def criar_motor(url: str):
+    """Ligação que aguenta a descarga longa das listas.
+
+    A 30/10/2026 a base do Render fechou a ligação parada durante a descarga e a
+    importação falhou no fim. pool_pre_ping confirma a ligação antes de cada uso
+    (e abre outra se caiu); os keepalives TCP mantêm vivas as ligações paradas,
+    incluindo a do lock consultivo, que fica aberta durante toda a execução.
+    """
+    from sqlalchemy import create_engine
+
+    if not url.startswith(("postgresql", "postgres")):
+        return create_engine(url, pool_pre_ping=True)
+    argumentos = {"connect_timeout": 30, "keepalives": 1, "keepalives_idle": 60,
+                  "keepalives_interval": 15, "keepalives_count": 4}
+    return create_engine(url, connect_args=argumentos, pool_pre_ping=True, use_native_hstore=False)
+
+
+def importar_descarregados(db, args, onde: str) -> int:
+    """Importa os CSV já no disco (sem contactar a CAIXA). Ensaio sem --confirmo-gravar."""
+    from app.services.caixa_lista_segura import MAX_HORAS_FICHEIROS_LOCAIS, descarga_dos_ficheiros_locais
+    from app.services.scraper_service import ScraperService
+
+    descarga, problemas = descarga_dos_ficheiros_locais()
+    if problemas:
+        print("Recusado: os ficheiros locais não servem; nada foi gravado.")
+        for problema in problemas:
+            print(f"  - {problema}")
+        db.rollback()
+        return 1
+    geracoes = sorted({str(g) for g in descarga["geracoes"].values()})
+    tirar = ("desligado (só conta os ausentes)" if args.sem_remocoes
+             else "sim, se forem todas da mesma geração e até max(50, 20%); nada é apagado")
+    print(f"Ficheiros locais: 27 UFs, menos de {MAX_HORAS_FICHEIROS_LOCAIS} h, geração {', '.join(geracoes)}.")
+    print(f"  tirar ausentes da lista: {tirar}")
+    if not args.confirmo_gravar:
+        print("ENSAIO: nada foi gravado nem pedido à CAIXA. Para gravar: --confirmo-gravar")
+        db.rollback()
+        return 0
+
+    momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    registo = Path(args.registo or f"registo_rotina_caixa_{args.base}_{momento}_{os.getpid()}.jsonl")
+    with open(registo, "x", encoding="utf-8") as f:  # nunca sobrescreve
+        r = ScraperService(db).atualizar_lista_caixa(remover=not args.sem_remocoes, descarga_local=descarga)
+        linha_registo(f, "lista_local", {
+            "base": onde, "geracoes": geracoes, "pedidos_caixa": 0,
+            "ufs_importadas": r.get("ufs_importadas"),
+            "imoveis_atualizados": r.get("imoveis_atualizados"),
+            "imoveis_removidos": r.get("imoveis_removidos"),
+            "remocao_recusada": r.get("remocao_recusada"),
+            "ausentes_da_lista": r.get("ausentes_da_lista"),
+            "remocoes_desligadas": args.sem_remocoes,
+        })
+    print(f"Fim. Registo: {registo}")
+    return 0
+
+
 def linha_registo(f, etapa: str, dados: dict) -> dict:
     linha = {"etapa": etapa, "momento_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), **dados}
     f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
@@ -147,12 +205,19 @@ def main() -> int:
                    help="onde guardar o HTML das páginas pedidas (padrão: paginas_caixa ao lado do registo)")
     p.add_argument("--registo", default=None, help="ficheiro .jsonl novo para o resultado")
     p.add_argument("--confirmo-contactar-caixa", action="store_true")
+    p.add_argument("--importar-descarregados", action="store_true",
+                   help="importa os 27 CSV já descarregados neste computador, SEM contactar a CAIXA "
+                        "(todos têm de existir, ser listas válidas e ter menos de 12 h)")
+    p.add_argument("--confirmo-gravar", action="store_true",
+                   help="com --importar-descarregados: grava na base (sem isto é só ensaio)")
     args = p.parse_args()
     if args.lista_com_browser:
         args.lista = True
 
-    if not args.lista and args.max_pedidos_datas == 0:
-        sys.exit("Recusado: indique --lista e/ou --max-pedidos-datas N.")
+    if args.importar_descarregados and (args.lista or args.max_pedidos_datas):
+        sys.exit("Recusado: --importar-descarregados não se junta a --lista nem a --max-pedidos-datas.")
+    if not args.lista and args.max_pedidos_datas == 0 and not args.importar_descarregados:
+        sys.exit("Recusado: indique --lista, --max-pedidos-datas N ou --importar-descarregados.")
     if not 1 <= args.max_ufs <= MAX_UFS:
         sys.exit(f"Recusado: --max-ufs tem de estar entre 1 e {MAX_UFS}.")
     if not 0 <= args.max_pedidos_datas <= MAX_PEDIDOS_DATAS:
@@ -173,12 +238,11 @@ def main() -> int:
     os.environ["RADAR_CAIXA_LISTA_INTERVALO_SEGUNDOS"] = str(args.intervalo_lista)
     sys.path.insert(0, str(RAIZ_BACKEND))
 
-    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     # A base do Render fica longe: avisa e não espera para sempre pela ligação.
     print(f"A ligar à base ({args.base})...", flush=True)
-    motor = create_engine(url, connect_args={"connect_timeout": 30}, use_native_hstore=False)
+    motor = criar_motor(url)
     ok, onde = confirmar_copia(motor) if args.base == "copia" else confirmar_producao(motor, url)
     if not ok:
         sys.exit(f"Recusado: {onde}. Nada foi feito.")
@@ -209,6 +273,9 @@ def main() -> int:
         if estado:
             print(f"Estado: ativo={estado.ativo} cursor_id={estado.cursor_id} "
                   f"bloqueado_ate={estado.bloqueado_ate}{' (PARAGEM MANUAL)' if parado else ''}")
+
+        if args.importar_descarregados:
+            return importar_descarregados(db, args, onde)
 
         if not args.confirmo_contactar_caixa:
             from sqlalchemy import inspect

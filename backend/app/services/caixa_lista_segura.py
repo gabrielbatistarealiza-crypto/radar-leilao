@@ -65,6 +65,42 @@ def data_de_geracao(corpo: bytes) -> date | None:
         return None
 
 
+PASTA_DADOS_PADRAO = Path(__file__).resolve().parent.parent / "scrapers" / "dados"
+MAX_HORAS_FICHEIROS_LOCAIS = 12
+
+
+def descarga_dos_ficheiros_locais(pasta=None, max_horas: float = MAX_HORAS_FICHEIROS_LOCAIS,
+                                  agora: float | None = None) -> tuple[dict | None, list[str]]:
+    """Trata os 27 CSV já no disco como uma descarga, sem contactar a CAIXA.
+
+    Só aceita se TODAS as UFs tiverem ficheiro, cada um for uma lista da CAIXA
+    válida e tiver sido gravado há menos de `max_horas`. Devolve (descarga, [])
+    ou (None, problemas); nunca aceita metade.
+    """
+    pasta = Path(pasta) if pasta else PASTA_DADOS_PADRAO
+    agora = time.time() if agora is None else agora
+    geracoes, problemas = {}, []
+    for uf in CaixaListaSegura.UFS:
+        caminho = pasta / f"Lista_imoveis_{uf}.csv"
+        if not caminho.is_file():
+            problemas.append(f"{uf}: ficheiro em falta")
+            continue
+        horas = (agora - caminho.stat().st_mtime) / 3600
+        if horas > max_horas:
+            problemas.append(f"{uf}: descarregado há {horas:.0f} h (máximo {max_horas:g} h)")
+            continue
+        geracao = data_de_geracao(caminho.read_bytes())
+        if geracao is None:
+            problemas.append(f"{uf}: não é uma lista da CAIXA válida")
+            continue
+        geracoes[uf] = geracao
+    if problemas:
+        return None, problemas
+    return {"sucesso": list(CaixaListaSegura.UFS), "falhas": [], "bloqueado": False,
+            "paragem": None, "uf_bloqueada": None, "pedidos": 0,
+            "geracoes": geracoes, "ficheiros_locais": True}, []
+
+
 class CaixaListaSegura:
     UFS = [
         "AC", "AL", "AP", "AM", "BA", "CE", "DF",

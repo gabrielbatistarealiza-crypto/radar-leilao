@@ -379,7 +379,8 @@ class ScraperService:
         self.db.commit()
 
     def atualizar_lista_caixa(
-        self, max_ufs: int | None = None, remover: bool = True, com_browser: bool = False
+        self, max_ufs: int | None = None, remover: bool = True, com_browser: bool = False,
+        descarga_local: dict | None = None,
     ) -> dict:
 
         """Baixa, importa e remove anuncios Caixa ausentes da lista atual.
@@ -387,6 +388,9 @@ class ScraperService:
         `max_ufs` limita as UFs descarregadas (comando para a cópia); com menos
         de 27 UFs nada é removido. `remover=False` nunca remove: só conta os
         ausentes (`ausentes_da_lista`), para rever antes de os apagar.
+
+        `descarga_local`: resultado de descarga_dos_ficheiros_locais(); importa os
+        CSV já no disco SEM contactar a CAIXA (nem mexer na paragem manual).
         """
 
 
@@ -411,21 +415,24 @@ class ScraperService:
 
         try:
 
-            self._marcar_descarga_em_curso()
-            if com_browser:
-                # Só pelo comando local (scripts/rotina_caixa.py --lista-com-browser).
-                from app.services.caixa_downloader import CaixaDownloaderControlado
-
-                baixador = CaixaDownloaderControlado()
+            if descarga_local is not None:
+                download = descarga_local
             else:
-                baixador = CaixaDownloader()
-            download = (baixador.baixar_todos(max_ufs=max_ufs) if max_ufs
-                        else baixador.baixar_todos())
+                self._marcar_descarga_em_curso()
+                if com_browser:
+                    # Só pelo comando local (scripts/rotina_caixa.py --lista-com-browser).
+                    from app.services.caixa_downloader import CaixaDownloaderControlado
 
-            # Bloqueio ou resposta inesperada: paragem manual partilhada (todas as
-            # rotinas da CAIXA param até revisão); a limpeza não corre (download
-            # incompleto).
-            self._fechar_descarga(download)
+                    baixador = CaixaDownloaderControlado()
+                else:
+                    baixador = CaixaDownloader()
+                download = (baixador.baixar_todos(max_ufs=max_ufs) if max_ufs
+                            else baixador.baixar_todos())
+
+                # Bloqueio ou resposta inesperada: paragem manual partilhada (todas as
+                # rotinas da CAIXA param até revisão); a limpeza não corre (download
+                # incompleto).
+                self._fechar_descarga(download)
 
             # Só importa as UFs descarregadas AGORA. Os CSV antigos que ficaram no
             # disco de outras UFs não são lidos: regravavam dados velhos (em
