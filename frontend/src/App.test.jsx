@@ -169,6 +169,24 @@ describe("App (rede de segurança)", () => {
     expect(localStorage.getItem("radar-leilao-token")).toBeNull();
   });
 
+  it("login recusado por formato (422) mostra uma mensagem legível", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/login")) {
+        return respostaJson({ detail: [{ type: "value_error", msg: "value is not a valid email address" }] }, 422);
+      }
+      return respostaJson([]);
+    }));
+    const user = userEvent.setup();
+    montar();
+
+    await user.type(await screen.findByPlaceholderText("seu@email.com"), "x@y.test");
+    await user.type(screen.getByPlaceholderText("Sua senha"), "segredo123");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+
+    expect(await screen.findByText("Verifique o e-mail indicado.")).toBeInTheDocument();
+    expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
+  });
+
   it("sessão inválida volta ao login e apaga o token", async () => {
     localStorage.setItem("radar-leilao-token", "velho");
     vi.stubGlobal("fetch", apiFalsa({ usuario: null }));
