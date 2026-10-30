@@ -109,6 +109,7 @@ class ImovelEvento(Base):
     SAIU = "SAIU_DA_LISTA"
     VOLTOU = "VOLTOU_A_LISTA"
     PRECO = "PRECO_ALTERADO"
+    DATAS = "DATAS_DO_NOVO_EDITAL"  # datas vencidas substituídas por um edital novo
 
     id = Column(Integer, primary_key=True, index=True)
     imovel_id = Column(
