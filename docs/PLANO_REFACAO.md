@@ -15,7 +15,7 @@ sempre primeiro em ensaio (ROLLBACK) e corrido pelo dono do projeto.
 | 1 | Fundações: Alembic com a migração inicial, teste que impede modelos sem migração, CI no GitHub (pytest em PostgreSQL + vitest + build) | no `main` (PR #9) |
 | 2 | Migrações a correr no arranque (`python -m app.migrar` antes do uvicorn) e fim do `create_all` | no `main` (PR #12); produção na 0003 desde 30/10 |
 | 3 | Imóveis: nunca apagar (marcar "saiu da lista"), histórico (entrou, saiu, voltou, preço), importação em lotes e só das UFs descarregadas. Falta: número da Caixa único | no `main` (PRs #12 a #16) |
-| 4 | Utilizadores: um só campo de papel (hoje `admin` e `tipo`), token pelo id e não pelo e-mail, recuperação de senha por e-mail | precisa de escolher serviço de e-mail |
+| 4 | Utilizadores. **4A:** papel só em `tipo` (`admin` derivado; a coluna antiga fica sincronizada até uma migração futura a remover), token pelo id e não pelo e-mail (tokens antigos aceites), migração 0004 corrige dados. **4B:** recuperação de senha por e-mail | 4A no ramo `refactor/fase4-utilizadores`; 4B precisa de escolher serviço de e-mail |
 | 5 | Frontend: rotas a sério, páginas separadas (o `App.jsx` tem mais de 3000 linhas), um só cliente da API | |
 | 6 | Recolha da Caixa: guardar sempre os ficheiros originais e reprocessar offline; uma só porta para todas as rotinas | |
 | 7 | Alojamento: API e base na mesma região (São Paulo) | quando decidires |
