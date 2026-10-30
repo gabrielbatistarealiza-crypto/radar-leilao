@@ -20,10 +20,8 @@ import {
 
 import "./App.css";
 import {
-  dinheiro,
   analiseFinanceira,
   analiseDoCenario,
-  calcularDesconto,
   calcularScoreOportunidade,
   decisaoDaOportunidade,
   detalhesDoScore,
@@ -33,6 +31,9 @@ import {
 import { API_URL } from "./api";
 import DetalhesImovel from "./componentes/DetalhesImovel";
 import CartaoImovel from "./componentes/CartaoImovel";
+import GaleriaFotos from "./componentes/GaleriaFotos";
+import Paginacao from "./componentes/Paginacao";
+import PainelComparacao from "./componentes/PainelComparacao";
 
 function papelDoUsuario(usuario) {
   if (usuario?.admin === true || usuario?.tipo === "admin") {
@@ -1406,30 +1407,12 @@ function App() {
 
             <>
             {imoveisComparacao.length > 0 && (
-              <section className="comparison-panel" aria-labelledby="comparison-title">
-                <header className="comparison-header">
-                  <div><span className="fluxo-kicker">ANÁLISE LADO A LADO</span><h3 id="comparison-title">Comparação de oportunidades</h3><p>Os valores usam o cenário salvo selecionado em cada imóvel quando disponível.</p></div>
-                  <button type="button" onClick={() => setImoveisComparacao([])}>Limpar seleção</button>
-                </header>
-                <div className="comparison-scroll">
-                  <table className="comparison-table">
-                    <thead><tr><th scope="col">Indicador</th>{imoveisComparacao.map((item) => <th scope="col" key={item.id}><strong>{item.titulo || "Imóvel"}</strong><span>{item.cidade || "Cidade não informada"}{item.estado ? ` · ${item.estado}` : ""}</span><button type="button" onClick={() => alternarComparacao(item)} aria-label={`Remover ${item.titulo || "imóvel"} da comparação`}>Remover</button></th>)}</tr></thead>
-                    <tbody>{[
-                      ["Preço de aquisição / leilão", (item, dados) => dinheiro(dados.cenario ? dados.cenario.preco_aquisicao : dados.analise.leilao)],
-                      ["Investimento total estimado", (item, dados) => dinheiro(dados.analise.custoInvestimento)],
-                      ["Revenda esperada", (item, dados) => dinheiro(dados.analise.valorRevenda)],
-                      ["Lucro estimado", (item, dados) => dinheiro(dados.analise.lucroRealEstimado)],
-                      ["ROI estimado", (item, dados) => dados.faltantes.length ? "Indisponível: custos pendentes" : Number.isFinite(dados.analise.retornoSobreInvestimento) ? `${dados.analise.retornoSobreInvestimento.toFixed(2).replace(".", ",")}%` : "Indisponível"],
-                      ["Margem sobre revenda", (item, dados) => dados.faltantes.length ? "Indisponível: custos pendentes" : Number.isFinite(dados.analise.margemSeguranca) ? `${dados.analise.margemSeguranca.toFixed(2).replace(".", ",")}%` : "Indisponível"],
-                      ["Desconto sobre avaliação", (item) => { const desconto = calcularDesconto(item); return desconto == null ? "Indisponível" : `${desconto.toFixed(2).replace(".", ",")}%`; }],
-                      ["Score existente", (item, dados) => `${dados.score.valor}/100 · ${dados.score.texto}`],
-                    ].map(([rotulo, valor]) => <tr key={rotulo}><th scope="row">{rotulo}</th>{imoveisComparacao.map((item) => { const dados = dadosComparacao(item); return <td key={item.id}>{valor(item, dados)}</td>; })}</tr>)}
-                      <tr><th scope="row">Custos ausentes / por confirmar</th>{imoveisComparacao.map((item) => { const { faltantes, cenario } = dadosComparacao(item); return <td key={item.id}>{faltantes.length ? <><strong className="comparison-unknown">A confirmar</strong><span>{faltantes.join(", ")}</span>{cenario && <small>O cenário pode assumir zero nos campos ausentes; valores não confirmados não são tratados como conhecidos.</small>}</> : <span>Sem custos pendentes identificados</span>}</td>; })}</tr>
-                    </tbody>
-                  </table>
-                </div>
-                <p className="comparison-note">Na análise padrão, alguns custos usam estimativas predefinidas. Campos opcionais ausentes aparecem como pendentes; confirme-os antes de confiar no resultado.</p>
-              </section>
+              <PainelComparacao
+                alternarComparacao={alternarComparacao}
+                dadosComparacao={dadosComparacao}
+                imoveisComparacao={imoveisComparacao}
+                setImoveisComparacao={setImoveisComparacao}
+              />
             )}
 
             <div className="imoveis-grid">
@@ -1460,71 +1443,12 @@ function App() {
           !erro &&
           paginas > 1 && (
 
-            <div className="pagination">
-
-              <button
-                type="button"
-                className="pagination-arrow"
-                onClick={() =>
-                  mudarPagina(
-                    pagina - 1
-                  )
-                }
-                disabled={
-                  pagina === 1
-                }
-              >
-                ←
-              </button>
-
-              {paginasVisiveis().map(
-                (numero, index) =>
-                  numero === "..." ? (
-
-                    <span
-                      key={`ellipsis-${index}`}
-                      className="pagination-ellipsis"
-                    >
-                      ...
-                    </span>
-
-                  ) : (
-
-                    <button
-                      key={numero}
-                      type="button"
-                      className={`pagination-button ${pagina === numero
-                          ? "active"
-                          : ""
-                        }`}
-                      onClick={() =>
-                        mudarPagina(
-                          numero
-                        )
-                      }
-                    >
-                      {numero}
-                    </button>
-
-                  )
-              )}
-
-              <button
-                type="button"
-                className="pagination-arrow"
-                onClick={() =>
-                  mudarPagina(
-                    pagina + 1
-                  )
-                }
-                disabled={
-                  pagina === paginas
-                }
-              >
-                →
-              </button>
-
-            </div>
+            <Paginacao
+              mudarPagina={mudarPagina}
+              pagina={pagina}
+              paginas={paginas}
+              paginasVisiveis={paginasVisiveis}
+            />
 
           )}
 
@@ -1535,101 +1459,16 @@ function App() {
       )}
 
       {/* GALERIA */}
-      {galeriaAberta && (() => {
-        const fotos = fotosDoImovel(galeriaAberta);
-
-        return (
-          <div
-            className="gallery-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Fotos de ${galeriaAberta.titulo || "imóvel"}`}
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                setGaleriaAberta(null);
-              }
-            }}
-          >
-            <div className="gallery-content">
-              <button
-                type="button"
-                className="gallery-close"
-                onClick={() => setGaleriaAberta(null)}
-                aria-label="Fechar galeria"
-              >
-                ×
-              </button>
-
-              {fotos.length > 0 && (
-                <>
-                  <div className="gallery-main">
-                    <img
-                      src={fotos[fotoAtiva] || fotos[0]}
-                      alt={`Foto ${fotoAtiva + 1} de ${fotos.length}`}
-                      onError={() => {
-                        setFotoAtiva((atual) => {
-                          if (fotos.length <= 1 || atual >= fotos.length - 1) return atual;
-                          return atual + 1;
-                        });
-                      }}
-                    />
-
-                    {fotos.length > 1 && (
-                      <>
-                        <button
-                          type="button"
-                          className="gallery-nav gallery-prev"
-                          onClick={fotoAnterior}
-                          aria-label="Foto anterior"
-                        >
-                          ‹
-                        </button>
-
-                        <button
-                          type="button"
-                          className="gallery-nav gallery-next"
-                          onClick={proximaFoto}
-                          aria-label="Próxima foto"
-                        >
-                          ›
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="gallery-footer">
-                    <strong>{galeriaAberta.titulo || "Imóvel"}</strong>
-                    <span>{fotoAtiva + 1} de {fotos.length}</span>
-                  </div>
-
-                  {fotos.length > 1 && (
-                    <div
-                      className="gallery-thumbnails"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {fotos.map((fotoUrl, indice) => (
-                        <button
-                          type="button"
-                          className={indice === fotoAtiva ? "active" : ""}
-                          key={`${fotoUrl}-${indice}`}
-                          onClick={() => setFotoAtiva(indice)}
-                          aria-label={`Abrir foto ${indice + 1}`}
-                        >
-                          <img
-                            src={fotoUrl}
-                            alt={`Miniatura da foto ${indice + 1}`}
-                            loading="lazy"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {galeriaAberta && (
+        <GaleriaFotos
+          fotoAnterior={fotoAnterior}
+          fotoAtiva={fotoAtiva}
+          galeriaAberta={galeriaAberta}
+          proximaFoto={proximaFoto}
+          setFotoAtiva={setFotoAtiva}
+          setGaleriaAberta={setGaleriaAberta}
+        />
+      )}
 
       {/* DETALHES DO IMÓVEL */}
       {imovelDetalhes && (

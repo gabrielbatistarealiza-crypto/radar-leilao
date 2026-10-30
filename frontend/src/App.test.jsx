@@ -35,14 +35,15 @@ function respostaJson(corpo, status = 200) {
   };
 }
 
-function apiFalsa({ usuario, detalhe = IMOVEL } = {}) {
+function apiFalsa({ usuario, detalhe = IMOVEL, lista = IMOVEL, paginas = 1 } = {}) {
   return vi.fn(async (url) => {
     const caminho = String(url).replace(/^https?:\/\/[^/]+/, "");
     if (caminho.startsWith("/usuarios/me")) {
       return usuario ? respostaJson(usuario) : respostaJson({ detail: "x" }, 401);
     }
     if (caminho.startsWith("/imoveis/?")) {
-      return respostaJson({ items: [IMOVEL], total: 1, pagina: 1, tamanho_pagina: 20, paginas_totais: 1 });
+      return respostaJson({ items: [lista], total: paginas === 1 ? 1 : paginas * 20, pagina: 1, tamanho_pagina: 20,
+                            paginas_totais: paginas });
     }
     if (caminho.startsWith(`/imoveis/${IMOVEL.id}`)) return respostaJson(detalhe);
     if (caminho.startsWith("/pedidos-corretor/meu")) return respostaJson({ pedido: null });
@@ -133,6 +134,52 @@ describe("App (rede de segurança)", () => {
 
     expect(await screen.findByRole("button", { name: "Entrar" })).toBeInTheDocument();
     expect(localStorage.getItem("radar-leilao-token")).toBeNull();
+  });
+
+  it("paginação: a seta seguinte pede a página 2", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    const fetchFalso = apiFalsa({ usuario: CLIENTE, paginas: 3 });
+    vi.stubGlobal("fetch", fetchFalso);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Casa Teste Campinas");
+
+    await user.click(screen.getByRole("button", { name: "→" }));
+
+    await waitFor(() => {
+      const paginas = fetchFalso.mock.calls.map(([url]) => String(url)).filter((u) => u.includes("/imoveis/?"))
+        .map((u) => new URL(u).searchParams.get("pagina"));
+      expect(paginas).toContain("2");
+    });
+  });
+
+  it("comparação: seleciona, mostra o painel e limpa", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE }));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Comparar oportunidade/ }));
+
+    expect(screen.getByRole("heading", { name: "Comparação de oportunidades" })).toBeInTheDocument();
+    expect(screen.getByText("Score existente")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Limpar seleção" }));
+    expect(screen.queryByRole("heading", { name: "Comparação de oportunidades" })).not.toBeInTheDocument();
+  });
+
+  it("galeria: abre, avança e fecha", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    const comFotos = { ...IMOVEL, imagens: ["https://x/a.jpg", "https://x/b.jpg"] };
+    vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE, lista: comFotos }));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Abrir fotos de Casa Teste Campinas" }));
+
+    const galeria = screen.getByRole("dialog", { name: "Fotos de Casa Teste Campinas" });
+    await user.click(within(galeria).getByRole("button", { name: "Próxima foto" }));
+    await user.click(within(galeria).getByRole("button", { name: "Fechar galeria" }));
+    expect(screen.queryByRole("dialog", { name: "Fotos de Casa Teste Campinas" })).not.toBeInTheDocument();
   });
 
   it("o cartão mostra o botão de favorito", async () => {
