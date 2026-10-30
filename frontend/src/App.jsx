@@ -2,20 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Login from "./Login";
 import Admin from "./Admin";
 import MinhasOportunidades from "./MinhasOportunidades";
-import PedidoCorretor from "./PedidoCorretor";
 import Corretor from "./Corretor";
 import StatusCaixa from "./StatusCaixa";
 import Alertas from "./Alertas";
 import Consultoria from "./Consultoria";
 import {
-  Search,
   SlidersHorizontal,
   X,
   ArrowDownUp,
   Building2,
-  Gavel,
   AlertTriangle,
-  LogOut,
 } from "lucide-react";
 
 import "./App.css";
@@ -34,22 +30,11 @@ import CartaoImovel from "./componentes/CartaoImovel";
 import GaleriaFotos from "./componentes/GaleriaFotos";
 import Paginacao from "./componentes/Paginacao";
 import PainelComparacao from "./componentes/PainelComparacao";
-
-function papelDoUsuario(usuario) {
-  if (usuario?.admin === true || usuario?.tipo === "admin") {
-    return "admin";
-  }
-
-  return ["cliente", "corretor"].includes(usuario?.tipo)
-    ? usuario.tipo
-    : null;
-}
-
-const ROTULOS_PAPEL = {
-  cliente: "Cliente",
-  corretor: "Corretor",
-  admin: "Administrador",
-};
+import Cabecalho from "./componentes/Cabecalho";
+import PerfilCliente from "./componentes/PerfilCliente";
+import PerfilCorretor from "./componentes/PerfilCorretor";
+import TopoPesquisa from "./componentes/TopoPesquisa";
+import { papelDoUsuario } from "./papel";
 
 function App() {
   const [token, setToken] = useState(
@@ -730,87 +715,20 @@ function App() {
     className="app">
 
             {/* HEADER */}
-        <header className="header">
-          <div className="container header-content">
-
-            <div className="logo">
-              <div className="logo-icon">
-                <Gavel size={24} />
-              </div>
-
-              <div>
-                <h1>Radar Leilão</h1>
-                <span>
-                  Encontre oportunidades
-                </span>
-              </div>
-            </div>
-
-            <div className="header-account">
-              <span className="user-role-badge">
-                {ROTULOS_PAPEL[papel] || "Papel não configurado"}
-              </span>
-              {papel === "cliente" && (
-                <nav className="cliente-navigation" aria-label="Navegação do cliente">
-                  <a href="#meu-perfil">Meu perfil</a>
-                  <a href="#minhas-oportunidades">Minhas oportunidades</a>
-                  <a href="#alertas">Alertas</a>
-                  <a href="#consultoria">Dúvidas sobre leilão</a>
-                </nav>
-              )}
-              {papel === "corretor" && (
-                <nav className="cliente-navigation" aria-label="Navegação do corretor">
-                  <a href="#painel-corretor">Minhas oportunidades</a>
-                  <a href="#perfil-corretor">Meu perfil</a>
-                  <a href="#alertas">Alertas</a>
-                  <a href="#consultoria">Dúvidas sobre leilão</a>
-                </nav>
-              )}
-              {ehAdministrador && (
-                <a className="header-admin-link" href="/admin">
-                  Administração
-                </a>
-              )}
-              <button type="button" className="header-logout" onClick={sair}>
-                <LogOut size={16} />
-                Sair
-              </button>
-              <span className="header-status">
-                <span className="status-dot" />
-                Sistema online
-              </span>
-            </div>
-
-          </div>
-        </header>
+        <Cabecalho
+          ehAdministrador={ehAdministrador}
+          papel={papel}
+          sair={sair}
+        />
 
         {(papel === "cliente" || papel === "corretor") && <Alertas token={token} />}
 
         {papel === "cliente" && (
           <>
-            <section id="meu-perfil" className="container cliente-profile-section">
-              <div className="cliente-profile-card">
-                <div className="cliente-profile-heading">
-                  <span className="section-kicker">MINHA CONTA</span>
-                  <h2>Meu perfil</h2>
-                </div>
-                <dl className="cliente-profile-details">
-                  <div>
-                    <dt>Nome</dt>
-                    <dd>{usuario.nome || "Não informado"}</dd>
-                  </div>
-                  <div>
-                    <dt>E-mail</dt>
-                    <dd>{usuario.email || "Não informado"}</dd>
-                  </div>
-                  <div>
-                    <dt>Tipo</dt>
-                    <dd>{ROTULOS_PAPEL[usuario.tipo] || usuario.tipo || "Não informado"}</dd>
-                  </div>
-                </dl>
-                <PedidoCorretor token={token} />
-              </div>
-            </section>
+            <PerfilCliente
+              token={token}
+              usuario={usuario}
+            />
 
             <div className="container">
               <MinhasOportunidades
@@ -854,19 +772,9 @@ function App() {
 
         {papel === "corretor" && (
           <>
-            <section id="perfil-corretor" className="container cliente-profile-section">
-              <div className="cliente-profile-card">
-                <div className="cliente-profile-heading">
-                  <span className="section-kicker">MINHA CONTA</span>
-                  <h2>Meu perfil</h2>
-                </div>
-                <dl className="cliente-profile-details">
-                  <div><dt>Nome</dt><dd>{usuario.nome || "Não informado"}</dd></div>
-                  <div><dt>E-mail</dt><dd>{usuario.email || "Não informado"}</dd></div>
-                  <div><dt>Tipo</dt><dd>Corretor</dd></div>
-                </dl>
-              </div>
-            </section>
+            <PerfilCorretor
+              usuario={usuario}
+            />
             <Corretor
               usuario={usuario}
               token={token}
@@ -895,65 +803,11 @@ function App() {
         )}
 
         {/* HERO */}
-        <section className="hero">
-        <div className="container">
-
-          <div className="hero-text">
-
-            <span className="hero-label">
-              <Gavel size={16} />
-              OPORTUNIDADES EM LEILÕES
-            </span>
-
-            <h2>
-              Encontre imóveis abaixo
-              <br />
-              <strong>
-                do valor de mercado.
-              </strong>
-            </h2>
-
-            <p>
-              Pesquise imóveis de leilão,
-              compare valores e encontre as
-              melhores oportunidades.
-            </p>
-
-          </div>
-
-          {/* BUSCA */}
-          <form
-            className="search-box"
-            onSubmit={pesquisar}
-          >
-
-            <div className="search-input">
-
-              <Search size={22} />
-
-              <input
-                type="text"
-                placeholder="Digite cidade ou região..."
-                value={busca}
-                onChange={(event) =>
-                  setBusca(event.target.value)
-                }
-              />
-
-            </div>
-
-            <button
-              type="submit"
-              className="search-button"
-            >
-              <Search size={18} />
-              Pesquisar
-            </button>
-
-          </form>
-
-        </div>
-      </section>
+      <TopoPesquisa
+        busca={busca}
+        pesquisar={pesquisar}
+        setBusca={setBusca}
+      />
 
       {/* CONTEÚDO */}
       <main className="container main">
