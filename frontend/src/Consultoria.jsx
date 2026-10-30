@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Scale, SendHorizontal, LoaderCircle } from "lucide-react";
 import "./Consultoria.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL } from "./api";
 const LIMITE_PERGUNTA = 1500;
 
 const AVISO_PADRAO =

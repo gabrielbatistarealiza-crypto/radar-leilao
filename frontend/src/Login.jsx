@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import Registo from "./Registo";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL } from "./api";
 
 function Login({ onLogin }) {
   const [criandoConta, setCriandoConta] = useState(false);
@@ -35,7 +35,15 @@ function Login({ onLogin }) {
       const dados = await resposta.json().catch(() => ({}));
 
       if (!resposta.ok) {
-        throw new Error(dados.detail || "E-mail ou senha inválidos.");
+        // 422 = a API recusou o formato (detail é uma lista, que antes aparecia
+        // como "[object Object]"); os outros erros trazem detail em texto.
+        throw new Error(
+          typeof dados.detail === "string"
+            ? dados.detail
+            : resposta.status === 422
+              ? "Verifique o e-mail indicado."
+              : "E-mail ou senha inválidos."
+        );
       }
 
       localStorage.setItem("radar-leilao-token", dados.access_token);

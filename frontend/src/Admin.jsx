@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PedidosCorretorAdmin from "./PedidosCorretorAdmin";
 import {
   LIMITE_POR_PEDIDO,
@@ -8,7 +9,7 @@ import {
   mensagemStatusWorker,
 } from "./ritmoEnriquecimentoCaixa";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL } from "./api";
 const CURSOR_ENRIQUECIMENTO_CAIXA = "radar-caixa-datas-cursor";
 
 const formatarNumero = (valor) =>
@@ -101,6 +102,7 @@ function SecaoIndicadores({ titulo, legenda, itens }) {
 }
 
 function Admin({ usuario, onLogout }) {
+  const navegar = useNavigate();
   const [dashboard, setDashboard] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [erroDashboard, setErroDashboard] = useState("");
@@ -413,7 +415,7 @@ function Admin({ usuario, onLogout }) {
   }, []);
 
   function voltar() {
-    window.location.href = "/";
+    navegar("/");
   }
 
   async function criarUsuario(e) {

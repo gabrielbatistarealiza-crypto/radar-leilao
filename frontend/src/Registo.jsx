@@ -1,6 +1,9 @@
 import { useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL, mensagemDeErro } from "./api";
+
+// Continua a ser exportada daqui para quem já a importava deste ficheiro.
+export { mensagemDeErro };
 
 export const SENHA_MINIMA = 8;
 
@@ -18,17 +21,6 @@ export function validarRegisto({ nome, email, senha, confirmacao, souCorretor, c
     return "Indique o seu CRECI (ex.: CRECI-SP 123456-F).";
   }
   return "";
-}
-
-// A API devolve detail como texto ou, na validação, como lista de erros.
-export function mensagemDeErro(dados, padrao) {
-  const detalhe = dados?.detail;
-  if (typeof detalhe === "string") return detalhe;
-  if (Array.isArray(detalhe) && detalhe.length) {
-    const msg = String(detalhe[0]?.msg || "");
-    return msg.replace(/^Value error,\s*/i, "") || padrao;
-  }
-  return padrao;
 }
 
 function Registo({ onRegistado, onVoltar }) {
