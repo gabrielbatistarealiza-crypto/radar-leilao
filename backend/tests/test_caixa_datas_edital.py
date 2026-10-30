@@ -763,6 +763,16 @@ def test_interpretar_edital():
     assert (e.data_primeiro_leilao, e.data_segundo_leilao, e.numeros) == (D1, D2, {N1, N2})
 
 
+def test_interpretar_edital_com_dois_pontos_depois_de_leilao():
+    # Formato do edital 0052 / 0226-CPA/RE (30/10/2026): "Sessão do 1º Leilão: 30/11/2026".
+    texto = ("Data e Hora da Sessão do 1º Leilão: 30/11/2026 às 10:00h.\n"
+             "Data e Hora da Sessão do 2º Leilão: 04/12/2026 às 10:00h.\n"
+             "Anexo II – RELAÇÃO DE IMÓVEIS\n" + f"Casa ... {N1}  180.000,00  108.000,00\n")
+    e = ce.interpretar_texto_edital(texto)
+    assert (e.data_primeiro_leilao, e.data_segundo_leilao) == (date(2026, 11, 30), date(2026, 12, 4))
+    assert e.numeros == {N1}
+
+
 def test_edital_com_datas_trocadas_nao_e_interpretavel():
     assert ce.interpretar_texto_edital(texto_edital([N1], d1=D2, d2=D1)) is None
 

@@ -228,7 +228,8 @@ def _normalizar_numero(numero: str) -> str:
 def interpretar_texto_edital(texto: str) -> Edital | None:
     """Datas de sessão do 1.º e 2.º leilão e os números do Anexo II; None se faltar algo."""
     def data(ordem):
-        m = re.search(rf"Sess[ãa]o do {ordem}\S* Leil[ãa]o\s+(\d{{2}})/(\d{{2}})/(\d{{4}})", texto)
+        # "Sessão do 1º Leilão 20/10/2026" (edital 0049) ou "... Leilão: 30/11/2026" (edital 0052).
+        m = re.search(rf"Sess[ãa]o do {ordem}\S* Leil[ãa]o\s*:?\s+(\d{{2}})/(\d{{2}})/(\d{{4}})", texto)
         if not m:
             return None
         try:
