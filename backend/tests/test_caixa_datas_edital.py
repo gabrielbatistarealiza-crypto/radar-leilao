@@ -289,6 +289,33 @@ def test_edital_adiado_que_nao_confere_com_a_pagina_para(sessao, fabrica):
     assert r["paragem"] == "PAGINA_E_EDITAL_DIFERENTES"
 
 
+# ------------------------------------------------- resumo dos editais
+
+def test_resumo_editais_sugere_os_seguintes_e_lista_pdfs_por_aplicar(sessao, fabrica, tmp_path):
+    def link(n):
+        return f"https://venda-imoveis.caixa.gov.br/editais/EL{n:04d}0226CPARE.PDF"
+
+    imovel(fabrica, N1, data_primeiro_leilao=D1, data_segundo_leilao=D2, link_edital=link(50))
+    imovel(fabrica, N2, data_primeiro_leilao=D1, data_segundo_leilao=D2, link_edital=link(57))
+    imovel(fabrica, N3, estado="SP")  # pendente
+    imovel(fabrica, N4, estado="SP", na_lista=False)  # fora da lista não conta
+    for nome in ("EL00570226CPARE.PDF", "el00580226cpare.pdf", "notas.txt"):
+        (tmp_path / nome).write_bytes(b"%PDF-")
+
+    r = ce.resumo_editais(sessao, tmp_path)
+
+    assert r["pendentes_de_datas"] == 1 and r["pendentes_por_uf"] == {"SP": 1}
+    assert r["editais_aplicados"] == 2 and r["ultimo_edital"] == "EL00570226CPARE"
+    assert r["experimentar"] == [link(58), link(59)]
+    assert r["pdfs_por_aplicar"] == ["el00580226cpare.pdf"]
+
+
+def test_resumo_editais_sem_editais_nem_pasta(sessao, fabrica):
+    imovel(fabrica, N1)
+    r = ce.resumo_editais(sessao, None)
+    assert r["pendentes_de_datas"] == 1 and "experimentar" not in r and "pdfs_por_aplicar" not in r
+
+
 # --------------------------------------------- um imóvel por estado
 
 def test_proximo_de_outra_uf_comeca_pelo_estado_com_mais_pendentes(sessao, fabrica):

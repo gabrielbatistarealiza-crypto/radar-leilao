@@ -415,6 +415,46 @@ def link_do_ficheiro_edital(nome_ficheiro: str) -> str | None:
     return f"https://{DOMINIO_CAIXA}/editais/{m.group(1).upper()}.PDF" if m else None
 
 
+_RE_NUMERO_EDITAL = re.compile(r"/editais/EL(\d{4})(\w+)\.PDF$", re.IGNORECASE)
+
+
+def resumo_editais(db, pasta_editais=None) -> dict:
+    """Lembrete sem contactar a CAIXA: pendentes, último edital aplicado e o que fazer a seguir.
+
+    Os editais "Edital Único" têm numeração nacional seguida (EL0050..., EL0051...):
+    sugere os números a seguir ao maior já aplicado e lista os PDFs da pasta que
+    ainda não foram aplicados (o link deles não está em nenhum imóvel).
+    """
+    from pathlib import Path
+
+    from sqlalchemy import func
+
+    pendentes = db.query(func.count(Imovel.id)).filter(filtro_pendentes()).scalar() or 0
+    por_uf = (db.query(Imovel.estado, func.count(Imovel.id)).filter(filtro_pendentes())
+              .group_by(Imovel.estado).order_by(func.count(Imovel.id).desc()).limit(5).all())
+    aplicados = {link for (link,) in db.query(Imovel.link_edital).filter(
+        Imovel.link_edital.ilike("%/editais/EL%")).distinct()}
+    numeros = []
+    for link in aplicados:
+        m = _RE_NUMERO_EDITAL.search(link)
+        if m:
+            numeros.append((int(m.group(1)), m.group(2).upper()))
+    resumo = {"pendentes_de_datas": pendentes, "pendentes_por_uf": dict(por_uf),
+              "editais_aplicados": len(aplicados)}
+    if numeros:
+        ultimo, sufixo = max(numeros)
+        resumo["ultimo_edital"] = f"EL{ultimo:04d}{sufixo}"
+        resumo["experimentar"] = [f"https://{DOMINIO_CAIXA}/editais/EL{n:04d}{sufixo}.PDF"
+                                  for n in (ultimo + 1, ultimo + 2)]
+    if pasta_editais is not None and Path(pasta_editais).is_dir():
+        resumo["pdfs_por_aplicar"] = sorted(
+            f.name for f in Path(pasta_editais).iterdir()
+            if f.is_file() and f.suffix.upper() == ".PDF"
+            and link_do_ficheiro_edital(f.name) not in aplicados
+        )
+    return resumo
+
+
 def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False,
                          saltar_incoerentes: bool = False) -> dict:
     """Aplica um edital já descarregado (PDF no disco), sem contactar a CAIXA.
