@@ -1,9 +1,10 @@
 # Radar Leilão: estado atual, decisões em aberto e deploy
 
-_Atualizado em 28/10/2026. Em produção: API no commit `0e84870` (PR #5) e site no
-`8463dee` (PR #7), com as rotinas automáticas da Caixa desligadas (secção 7). O branch
-local `feat/worker-datas-edital` (sem push) tem o worker novo da Caixa e as correções das
-decisões 2, 3, 5 e 6 (secções 2, 3 e 9)._
+_Atualizado em 30/10/2026. Em produção: `main` no PR #16 (`b45dff1`), com as migrações
+do Alembic a correr no arranque e as rotinas automáticas da Caixa desligadas no Render.
+A Caixa recusa o IP do Render: listas e datas tratam-se a partir do computador local.
+**O estado e os procedimentos atuais estão na secção 10**; as secções 1 a 9 são o
+histórico até 28/10._
 
 Este documento substitui o `LEIA-ME-PRIMEIRO.md` e o `INTEGRACAO.md`, que eram notas de
 entrega de um pacote antigo. **Não sigas as instruções de "copiar por cima" desses
@@ -42,8 +43,9 @@ A produção é a base PostgreSQL 18 do **Render**. O contentor local
    validação da secção 2**.
 
 Notas:
-- O `create_all` cria tabelas novas (por exemplo `caixa_data_worker_state`), mas **não
-  acrescenta colunas** a tabelas que já existem. Por isso as migrações são necessárias.
+- (Até 30/10/2026.) O `create_all` criava tabelas novas mas **não acrescentava colunas**.
+  Desde a fase 2 já não há `create_all`: as migrações do Alembic correm no arranque
+  (secção 10 e `docs/PLANO_REFACAO.md`).
 - Mantém uma só instância (o `Dockerfile` já usa `--workers 1`). Mesmo com mais
   processos, o acesso à Caixa fica protegido pelo lock consultivo do PostgreSQL.
 
@@ -330,3 +332,72 @@ com autorização explícita).** Nenhum foi repetido.
 3. Ligar as rotinas com `RADAR_ENABLE_CAIXA_PHOTO_WORKER=0`, o limite diário baixo e
    acompanhar os logs do primeiro dia; subir o ritmo só depois de uma semana sem
    bloqueios.
+
+## 10. Estado e procedimentos a 30/10/2026
+
+### O que mudou (PRs #8 a #16)
+
+- **Render bloqueado pela Caixa** (HTTP 403 a 29/10). A API corre com
+  `RADAR_DISABLE_BACKGROUND_JOBS=1`; as rotinas da Caixa correm no computador local com
+  `backend/scripts/rotina_caixa.py`, ligadas diretamente à base do Render
+  (`RADAR_RENDER_DB_URL` só na sessão do terminal).
+- **Migrações (fases 1 e 2):** Alembic em `backend/migrations`; `python -m app.migrar`
+  corre antes do uvicorn. A produção foi marcada em 0001 a 30/10 e está na 0003. Uma base
+  com tabelas mas sem versão é recusada (o deploy falha e o Render mantém a versão
+  anterior).
+- **Imóveis (fase 3):** quem sai da lista da Caixa não é apagado: fica `na_lista=false`,
+  sai da pesquisa e dos alertas, mantém fotos e oportunidades e volta se reaparecer.
+  Histórico em `imovel_eventos` (entrou, saiu, voltou, preço, datas de novo edital).
+- **Registo público** de clientes e pedido de conta de corretor com aprovação no Admin
+  (`RADAR_REGISTO_PUBLICO=0` fecha o registo).
+- **CI no GitHub** em cada PR: pytest em PostgreSQL, migrações, lint, vitest e build.
+
+### Números de 30/10/2026
+
+- Lista completa de 29/10 importada pelo browser: 4619 imóveis na lista; 590 marcados
+  fora da lista (nenhum apagado).
+- Datas: de 4616 pendentes para 1, com 8 editais aplicados à mão (0050 a 0057, todos
+  `0226-CPA/RE`, cerca de 580 imóveis cada), sem pedidos automáticos à Caixa.
+- O imóvel 14205 (8787708915543) está nos editais 0051 e 0057; ficou com as datas do
+  0051 (24/11 e 30/11). Rever na página da Caixa.
+
+### O que a Caixa tolera (a partir do IP de casa)
+
+| Pedido | Resultado |
+|---|---|
+| Listas com browser real (Selenium), 27 UFs a 30-180 s | passam |
+| Listas com `requests` | 2.º pedido redirecionado (Radware) |
+| Página de imóvel com `requests` | 1.º passa; o 2.º, mesmo 10 min depois, é redirecionado |
+| PDF de edital com `requests` | passou isolado a 28/10; redirecionado a 30/10 depois de outros pedidos |
+| PDF de edital no browser, à mão | passa |
+
+A Caixa gera as listas novas por volta da 01:00 UTC: uma descarga que atravesse essa
+hora mistura gerações e não tira ninguém da lista.
+
+### Procedimentos (a partir de `backend/`, com `RADAR_RENDER_DB_URL` definida)
+
+Todos fazem ensaio por omissão. Qualquer contacto real com a Caixa liga a paragem manual
+se correr mal; tira-se com o `05_retomar_caixa` (ensaio e depois COMMIT).
+
+1. **Atualizar as listas** (contacta a Caixa; ~15 a 80 min):
+   `python scripts/rotina_caixa.py --base producao --lista-com-browser --intervalo-lista 90 --confirmo-contactar-caixa`
+   Sem `--sem-remocoes` tira da lista os ausentes (nunca apaga; limite max(50, 20%)).
+2. **Importar listas já descarregadas** (não contacta; ficheiros com menos de 12 h):
+   `python scripts/rotina_caixa.py --base producao --importar-descarregados --confirmo-gravar`
+3. **Datas por edital** (não contacta): descarregar no browser
+   `https://venda-imoveis.caixa.gov.br/editais/EL00NN0226CPARE.PDF` para a pasta
+   `Editais/` (fora do git), experimentando os números seguintes até dar 404 (a 30/10 o
+   0058 ainda não existia), e aplicar:
+   `python scripts/rotina_caixa.py --base producao --aplicar-edital ..\Editais\EL00580226CPARE.PDF --confirmo-gravar`
+   Recusa editais já passados ou sem imóveis na base. Se um imóvel tiver datas futuras
+   de outro edital, `--saltar-incoerentes` aplica aos restantes e lista-o para revisão.
+4. **Descobrir editais de imóveis sem datas** (contacta; 1 página por execução):
+   `python scripts/rotina_caixa.py --base producao --max-pedidos-datas 1 --uma-por-uf --confirmo-contactar-caixa`
+   Mostra no fim o link do edital a descarregar.
+
+### Por decidir
+
+- Agendar a atualização das listas no Windows (o `rotina_caixa_agendada.ps1` está
+  desatualizado).
+- Fases 4 (utilizadores) e 5 (frontend) do `docs/PLANO_REFACAO.md`.
+- Alojamento: API e base na mesma região (decidido manter o Render por agora).
