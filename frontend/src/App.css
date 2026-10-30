@@ -955,7 +955,11 @@ a {
   line-height: 1.35;
 }
 
-.decision-indicator.vale {
+/* "excelente" e "boa" não tinham cor: o texto ficava branco sobre branco
+   (nunca se via porque, sem os valores do edital, nenhum imóvel lá chegava). */
+.decision-indicator.vale,
+.decision-indicator.excelente,
+.decision-indicator.boa {
   border-color: #86efac;
   background: #f0fdf4;
   color: #15803d;
@@ -1315,6 +1319,33 @@ a {
 .economy strong {
   color: #059669;
   font-size: 14px;
+}
+
+/* Valores de venda do edital (1.º e 2.º leilão) no cartão do imóvel. */
+.valores-leiloes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.valores-leiloes > div {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.valores-leiloes span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.valores-leiloes strong {
+  color: #1e293b;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .financial-analysis {

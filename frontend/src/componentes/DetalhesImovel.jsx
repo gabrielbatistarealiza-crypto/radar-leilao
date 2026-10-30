@@ -2,7 +2,7 @@
 import { ExternalLink, Heart, Home, Image as ImageIcon, MapPin, X } from "lucide-react";
 import Oportunidade from "../Oportunidade";
 import { avisoForaDaLista } from "../foraDaLista";
-import { calcularDesconto, calcularEconomia, dinheiro, formatarData, fotosDoImovel, valorInputFinanceiro } from "../imovel/analise";
+import { calcularDesconto, calcularEconomia, dinheiro, formatarData, fotosDoImovel, valorInputFinanceiro, valoresDosLeiloes } from "../imovel/analise";
 
 export default function DetalhesImovel({
   IconeDecisao,
@@ -133,10 +133,27 @@ export default function DetalhesImovel({
               <span>Valor de avaliação</span>
               <strong>{dinheiro(imovelDetalhes.valor_avaliacao)}</strong>
             </div>
-            <div>
-              <span>Valor do leilão</span>
-              <strong>{dinheiro(imovelDetalhes.valor_leilao)}</strong>
-            </div>
+            {valoresDosLeiloes(imovelDetalhes) ? (
+              <>
+                <div>
+                  <span>1.º leilão</span>
+                  <strong>{dinheiro(valoresDosLeiloes(imovelDetalhes).primeiro)}</strong>
+                </div>
+                <div>
+                  <span>2.º leilão</span>
+                  <strong>{dinheiro(valoresDosLeiloes(imovelDetalhes).segundo)}</strong>
+                </div>
+                <div>
+                  <span>Lance mínimo</span>
+                  <strong>{dinheiro(imovelDetalhes.valor_leilao)}</strong>
+                </div>
+              </>
+            ) : (
+              <div>
+                <span>Valor do leilão</span>
+                <strong>{dinheiro(imovelDetalhes.valor_leilao)}</strong>
+              </div>
+            )}
             <div>
               <span>Você economiza</span>
               <strong>{dinheiro(calcularEconomia(imovelDetalhes))}</strong>

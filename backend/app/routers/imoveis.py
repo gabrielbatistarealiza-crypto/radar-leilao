@@ -140,7 +140,7 @@ def _score_expression():
 
                 Imovel.valor_avaliacao.isnot(None),
 
-                Imovel.valor_leilao.isnot(None),
+                Imovel.valor_lance.isnot(None),
 
                 Imovel.valor_avaliacao > 0,
 
@@ -148,7 +148,7 @@ def _score_expression():
 
             (
 
-                (Imovel.valor_avaliacao - Imovel.valor_leilao)
+                (Imovel.valor_avaliacao - Imovel.valor_lance)
 
                 / Imovel.valor_avaliacao
 
@@ -184,11 +184,11 @@ def _score_expression():
 
                 Imovel.valor_avaliacao.isnot(None),
 
-                Imovel.valor_leilao.isnot(None),
+                Imovel.valor_lance.isnot(None),
 
             ),
 
-            Imovel.valor_avaliacao - Imovel.valor_leilao,
+            Imovel.valor_avaliacao - Imovel.valor_lance,
 
         ),
 
@@ -224,7 +224,7 @@ def _score_expression():
 
                 Imovel.valor_avaliacao.isnot(None),
 
-                Imovel.valor_leilao.isnot(None),
+                Imovel.valor_lance.isnot(None),
 
                 Imovel.area.isnot(None),
 
@@ -232,7 +232,7 @@ def _score_expression():
 
             ),
 
-            (Imovel.valor_avaliacao - Imovel.valor_leilao) / Imovel.area,
+            (Imovel.valor_avaliacao - Imovel.valor_lance) / Imovel.area,
 
         ),
 
@@ -294,7 +294,7 @@ def _score_expression():
 
                     Imovel.valor_avaliacao.isnot(None),
 
-                    Imovel.valor_leilao.isnot(None),
+                    Imovel.valor_lance.isnot(None),
 
                 ),
 
@@ -390,9 +390,17 @@ def _serializar_imovel(imovel):
 
         "valor_avaliacao": imovel.valor_avaliacao,
 
-        "valor_leilao": imovel.valor_leilao,
+        # valor_leilao = lance mínimo (edital, se lido; senão o preço da lista),
+        # para todos os cálculos do site usarem o preço que de facto se paga.
+        "valor_leilao": imovel.valor_lance,
 
-        "desconto": imovel.desconto,
+        "valor_lista": imovel.valor_leilao,
+
+        "valor_primeiro_leilao": imovel.valor_primeiro_leilao,
+
+        "valor_segundo_leilao": imovel.valor_segundo_leilao,
+
+        "desconto": imovel.desconto_atual,
 
         "economia_m2": imovel.economia_m2,
 
@@ -618,7 +626,7 @@ def listar_imoveis(
 
                 Imovel.valor_avaliacao.isnot(None),
 
-                Imovel.valor_leilao.isnot(None),
+                Imovel.valor_lance.isnot(None),
 
                 Imovel.valor_avaliacao > 0,
 
@@ -626,7 +634,7 @@ def listar_imoveis(
 
             (
 
-                (Imovel.valor_avaliacao - Imovel.valor_leilao)
+                (Imovel.valor_avaliacao - Imovel.valor_lance)
 
                 / Imovel.valor_avaliacao
 
@@ -648,7 +656,7 @@ def listar_imoveis(
 
     if valor_maximo is not None:
 
-        query = query.filter(Imovel.valor_leilao <= valor_maximo)
+        query = query.filter(Imovel.valor_lance <= valor_maximo)
 
 
 
@@ -764,7 +772,7 @@ def listar_imoveis(
 
     if ordenar == "preco":
 
-        campo = Imovel.valor_leilao
+        campo = Imovel.valor_lance
 
     elif ordenar == "desconto":
 
@@ -784,7 +792,7 @@ def listar_imoveis(
 
                     Imovel.valor_avaliacao.isnot(None),
 
-                    Imovel.valor_leilao.isnot(None),
+                    Imovel.valor_lance.isnot(None),
 
                     Imovel.area.isnot(None),
 
@@ -792,7 +800,7 @@ def listar_imoveis(
 
                 ),
 
-                (Imovel.valor_avaliacao - Imovel.valor_leilao) / Imovel.area,
+                (Imovel.valor_avaliacao - Imovel.valor_lance) / Imovel.area,
 
             ),
 

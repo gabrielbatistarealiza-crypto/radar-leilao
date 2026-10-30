@@ -221,6 +221,32 @@ export function calcularDesconto(imovel) {
   return percentual;
 }
 
+function temValoresBasicos(imovel) {
+  return Number(imovel?.valor_avaliacao) > 0 && Number(imovel?.valor_leilao) > 0;
+}
+
+function temValoresDoEdital(imovel) {
+  return imovel?.valor_primeiro_leilao != null || imovel?.valor_segundo_leilao != null;
+}
+
+// Leilão SFI cujo edital ainda não foi lido: só há o preço da lista (= avaliação).
+export function aguardaValoresDoEdital(imovel) {
+  return /leil[aã]o sfi/i.test(imovel?.modalidade || "") && !temValoresDoEdital(imovel);
+}
+
+// Valores de venda do edital para mostrar no cartão; null se ainda não há edital.
+export function valoresDosLeiloes(imovel) {
+  if (!temValoresDoEdital(imovel)) return null;
+  const primeiro = Number(imovel.valor_primeiro_leilao);
+  const segundo = Number(imovel.valor_segundo_leilao);
+  return {
+    primeiro: Number.isFinite(primeiro) && primeiro > 0 ? primeiro : null,
+    segundo: Number.isFinite(segundo) && segundo > 0 ? segundo : null,
+    // O backend já envia em valor_leilao o menor dos dois lances.
+    lanceMinimo: Number(imovel.valor_leilao) > 0 ? Number(imovel.valor_leilao) : null,
+  };
+}
+
 export function calcularEconomia(imovel) {
   const avaliacao = Number(imovel.valor_avaliacao || 0);
   const leilao = Number(imovel.valor_leilao || 0);
@@ -522,18 +548,35 @@ export function decisaoDaOportunidade(imovel, custosPersonalizados = {}, cenario
   }
 
   // =====================================================
-  // DADOS INSUFICIENTES
+  // SEM DESCONTO OU PONTUAÇÃO BAIXA
   // =====================================================
 
-  if (
-    score.valor < 45 ||
-    desconto === null
-  ) {
+  if (desconto === null || score.valor < 45) {
+    if (!temValoresBasicos(imovel)) {
+      return {
+        classe: "evitar",
+        titulo: "Dados insuficientes",
+        descricao: "Faltam o valor de avaliação ou o valor do leilão para analisar este imóvel.",
+        Icone: CircleX
+      };
+    }
+    // Leilão SFI sem edital lido: a lista da Caixa só mostra a avaliação.
+    if (desconto === null && aguardaValoresDoEdital(imovel)) {
+      return {
+        classe: "atencao",
+        titulo: "Valor do 2.º leilão por confirmar",
+        descricao:
+          "A lista da Caixa mostra só o valor de avaliação. O desconto costuma estar no 2.º leilão, cujo valor vem no edital.",
+        Icone: AlertTriangle
+      };
+    }
     return {
       classe: "evitar",
-      titulo: "Dados insuficientes",
+      titulo: desconto === null ? "Sem desconto" : "Oportunidade fraca",
       descricao:
-        "Não há informações suficientes para considerar este imóvel uma boa oportunidade.",
+        desconto === null
+          ? "O lance mínimo não fica abaixo do valor de avaliação."
+          : "O desconto e a economia são baixos para considerar este imóvel uma boa oportunidade.",
       Icone: CircleX
     };
   }
