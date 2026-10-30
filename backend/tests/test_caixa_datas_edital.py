@@ -289,6 +289,53 @@ def test_edital_adiado_que_nao_confere_com_a_pagina_para(sessao, fabrica):
     assert r["paragem"] == "PAGINA_E_EDITAL_DIFERENTES"
 
 
+# --------------------------------------------- um imóvel por estado
+
+def test_proximo_de_outra_uf_comeca_pelo_estado_com_mais_pendentes(sessao, fabrica):
+    rj1 = imovel(fabrica, "1000000001", estado="RJ")
+    imovel(fabrica, "1000000002", estado="SP")
+    sp2 = imovel(fabrica, "1000000003", estado="SP")
+    imovel(fabrica, "1000000004", estado="SP")
+    imovel(fabrica, "1000000005", estado="RJ")
+    imovel(fabrica, "1000000006", estado="SP", na_lista=False)  # fora da lista não conta
+    imovel(fabrica, "1000000007", estado="AL", data_primeiro_leilao=D1, data_segundo_leilao=D2)
+
+    primeiro = ce.proximo_de_outra_uf(sessao, set())
+    assert primeiro.estado == "SP" and primeiro.id < sp2.id  # SP tem 3 pendentes; o mais antigo
+    assert ce.proximo_de_outra_uf(sessao, {"SP"}).id == rj1.id
+    assert ce.proximo_de_outra_uf(sessao, {"sp", "RJ"}) is None  # AL não tem pendentes
+
+
+def test_volta_por_estado_nao_mexe_no_cursor_nem_desativa_a_fila(sessao, fabrica):
+    a = imovel(fabrica, N1, estado="SP")
+    b = imovel(fabrica, N2, estado="RJ")
+    sessao.add(CaixaDataWorkerState(id=1, ativo=True, cursor_id=7, bloqueios_consecutivos=0))
+    sessao.commit()
+    rede = Rede({a.url: pagina(D1, D2), b.url: pagina(D1, D2)})
+
+    r1 = worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1, excluir_ufs=set())
+    r2 = worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1, excluir_ufs={r1["uf"]})
+    r3 = worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1, excluir_ufs={"SP", "RJ"})
+
+    assert {r1["uf"], r2["uf"]} == {"SP", "RJ"} and len(rede.pedidos) == 2
+    assert r3["ufs_esgotadas"] is True and r3["pedidos"] == 0
+    atual = estado(sessao)
+    assert atual.cursor_id == 7 and atual.ativo is True and atual.bloqueado_ate is None
+
+
+def test_bloqueio_na_volta_por_estado_para_sem_mexer_no_cursor(sessao, fabrica):
+    a = imovel(fabrica, N1, estado="SP")
+    sessao.add(CaixaDataWorkerState(id=1, ativo=True, cursor_id=7, bloqueios_consecutivos=0))
+    sessao.commit()
+
+    r = worker.processar_lote_datas_caixa(
+        sessao, pedir=Rede({a.url: RespostaCaixa("REDIRECIONADO")}), max_pedidos=1, excluir_ufs=set())
+
+    atual = estado(sessao)
+    assert r["paragem"] == "REDIRECIONADO" and atual.bloqueado_ate == ce.PARAGEM_MANUAL
+    assert atual.cursor_id == 7
+
+
 # ------------------------------------------ edital descarregado no browser
 
 @pytest.mark.parametrize("nome, link", [

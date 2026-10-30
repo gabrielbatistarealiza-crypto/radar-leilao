@@ -36,12 +36,13 @@ def _com_acesso(db, origem, funcao):
         return {"ocupado": True}
 
 
-def executar_lote_datas(db, max_pedidos: int = 2, pedir=None, edital_pendente=None) -> dict:
+def executar_lote_datas(db, max_pedidos: int = 2, pedir=None, edital_pendente=None,
+                        excluir_ufs=None) -> dict:
     return _com_acesso(
         db,
         "datas-worker",
         lambda: processar_lote_datas_caixa(db, pedir=pedir, max_pedidos=max_pedidos,
-                                           edital_pendente=edital_pendente),
+                                           edital_pendente=edital_pendente, excluir_ufs=excluir_ufs),
     )
 
 

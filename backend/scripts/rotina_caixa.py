@@ -243,6 +243,9 @@ def main() -> int:
                         "SEM contactar a CAIXA")
     p.add_argument("--link-edital", default=None,
                    help="com --aplicar-edital: link do edital, se o nome do ficheiro não for EL....PDF")
+    p.add_argument("--uma-por-uf", action="store_true",
+                   help="na recolha de datas, lê um imóvel de cada estado (os com mais pendentes "
+                        "primeiro) para descobrir depressa os editais regionais")
     p.add_argument("--pedir-editais", action="store_true",
                    help="na recolha de datas, pede também o PDF do edital na volta seguinte "
                         "(desligado: a CAIXA redireciona os PDFs; os links ficam listados no fim)")
@@ -376,12 +379,16 @@ def main() -> int:
             # listados no fim para descarregar à mão e aplicar com --aplicar-edital.
             edital_pendente = None
             editais_por_descarregar: list[str] = []
+            ufs_vistas: set[str] | None = set() if args.uma_por_uf else None
             while not parou and pedidos < args.max_pedidos_datas:
                 if volta:
                     time.sleep(args.intervalo_datas)
                 volta += 1
                 antes = len(guardados)
-                r = executar_lote_datas(db, max_pedidos=1, pedir=pedir, edital_pendente=edital_pendente)
+                r = executar_lote_datas(db, max_pedidos=1, pedir=pedir, edital_pendente=edital_pendente,
+                                        excluir_ufs=None if ufs_vistas is None else set(ufs_vistas))
+                if ufs_vistas is not None and r.get("uf"):
+                    ufs_vistas.add(r["uf"])
                 edital_pendente = None
                 if r.get("estado_edital") == "ADIADO_LIMITE_DE_PEDIDOS" and r.get("edital"):
                     if args.pedir_editais:
@@ -389,7 +396,8 @@ def main() -> int:
                     elif r["edital"] not in editais_por_descarregar:
                         editais_por_descarregar.append(r["edital"])
                 pedidos += r.get("pedidos", 0)
-                chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "fotos", "fotos_novas",
+                chaves = ("imovel_id", "uf", "ufs_esgotadas", "pedidos", "atualizados", "datas_da_pagina",
+                          "fotos", "fotos_novas",
                           "estado_edital", "edital", "so_edital", "preenchidos_pelo_edital",
                           "renovados_pelo_edital", "membros_na_base", "paragem", "concluido",
                           "aguardando_bloqueio", "ocupado", "limite_diario_atingido")
@@ -411,7 +419,7 @@ def main() -> int:
                                                  "paginas_vazias_seguidas": vazias_seguidas,
                                                  "pasta_paginas": str(pasta_paginas)})
                     parou = True
-                if r.get("concluido") and not edital_pendente:
+                if (r.get("concluido") or r.get("ufs_esgotadas")) and not edital_pendente:
                     break
             if edital_pendente and not parou:
                 # Acabou a quota desta execução com um edital por ler: fica registado;

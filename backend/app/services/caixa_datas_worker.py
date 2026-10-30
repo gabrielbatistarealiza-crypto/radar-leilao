@@ -145,7 +145,7 @@ def reativar_worker_datas_caixa(db) -> None:
 
 
 def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor_na_paragem,
-                    edital_pendente: dict | None = None):
+                    edital_pendente: dict | None = None, excluir_ufs=None):
     """Passo comum ao worker e ao endpoint manual.
 
     `cursor` é o estado do worker ou um cursor próprio do endpoint manual.
@@ -176,7 +176,7 @@ def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor
         else:
             resultado = processar_passo(
                 db, cursor, pedir=pedir, max_pedidos=min(max_pedidos, restantes),
-                antes_de_pedir=marcar_pedido_em_curso,
+                antes_de_pedir=marcar_pedido_em_curso, excluir_ufs=excluir_ufs,
             )
     except Exception:
         # Resultado desconhecido: a marca (se já gravada) fica e tudo
@@ -249,12 +249,15 @@ def passo_manual_datas(db, depois_id: int | None = None, pedir=None,
 def processar_lote_datas_caixa(
     db, agora: datetime | None = None, pedir=None, max_pedidos: int = 2,
     edital_pendente: dict | None = None,
+    excluir_ufs=None,
 ) -> dict:
     """Uma volta: o próximo imóvel pendente (e o seu edital); avança o cursor.
 
     `pedir` substitui o pedido HTTP (testes). `max_pedidos` (1 ou 2) limita os
     GET desta volta; com 1, o edital fica para uma volta seguinte, que o pede
     passando `edital_pendente={"imovel_id": ..., "link": ...}`.
+    `excluir_ufs` (conjunto): modo "um imóvel por estado"; não mexe no cursor
+    nem desativa a fila quando os estados se esgotam.
     """
     estado = db.get(CaixaDataWorkerState, 1)
     if estado is None:
@@ -276,13 +279,17 @@ def processar_lote_datas_caixa(
             "pedidos": 0,
         }
 
+    por_uf = excluir_ufs is not None
     resultado = _executar_passo(db, estado, estado, agora, pedir, max_pedidos,
-                                recuar_cursor_na_paragem=True, edital_pendente=edital_pendente)
+                                recuar_cursor_na_paragem=not por_uf,
+                                edital_pendente=edital_pendente, excluir_ufs=excluir_ufs)
     if resultado.get("limite_diario_atingido"):
         return resultado
 
     if "paragem" in resultado:
         pass  # paragem manual já gravada por _executar_passo
+    elif por_uf or resultado.get("ufs_esgotadas"):
+        pass  # o cursor da ordem normal fica onde estava
     elif resultado.get("concluido"):
         estado.cursor_id = None
         estado.ativo = False

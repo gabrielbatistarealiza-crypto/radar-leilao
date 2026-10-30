@@ -459,8 +459,36 @@ def processar_edital_pendente(db, imovel_id: int, link: str, pedir=None, antes_d
     return _ler_e_aplicar_edital(db, imovel, link, pedir_, resultado, datas)
 
 
-def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None) -> dict:
+def proximo_de_outra_uf(db, excluir_ufs) -> Imovel | None:
+    """Imóvel pendente mais antigo do estado com MAIS pendentes, fora de `excluir_ufs`.
+
+    Os editais da CAIXA são regionais: ler uma página por estado (começando pelos
+    que têm mais pendentes) encontra depressa os links dos editais de cada região.
+    """
+    from sqlalchemy import func
+
+    excluir = {uf.upper() for uf in excluir_ufs if uf}
+    contagens = (
+        db.query(Imovel.estado, func.count(Imovel.id))
+        .filter(filtro_pendentes(), Imovel.estado.isnot(None))
+        .group_by(Imovel.estado)
+        .all()
+    )
+    candidatas = sorted(((n, uf) for uf, n in contagens if uf.upper() not in excluir),
+                        key=lambda par: (-par[0], par[1]))
+    if not candidatas:
+        return None
+    uf = candidatas[0][1]
+    return (db.query(Imovel).filter(filtro_pendentes(), Imovel.estado == uf)
+            .order_by(Imovel.id.asc()).first())
+
+
+def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None,
+                    excluir_ufs=None) -> dict:
     """Um imóvel (+ o seu edital, se ainda não lido). Não trata do estado.
+
+    `excluir_ufs` (conjunto, mesmo vazio) troca a ordem do cursor por "um imóvel
+    do estado com mais pendentes ainda não visto" (proximo_de_outra_uf).
 
     `antes_de_pedir(imovel_id)` é chamado imediatamente antes de CADA GET (o
     worker usa-o para gravar, com commit, a marca de pedido em curso).
@@ -468,12 +496,17 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
     "paragem" com o motivo; nesse caso o chamador grava a paragem manual.
     """
     pedir_real = pedir or pedir_caixa
-    consulta = db.query(Imovel).filter(filtro_pendentes())
-    if estado.cursor_id is not None:
-        consulta = consulta.filter(Imovel.id > estado.cursor_id)
-    imovel = consulta.order_by(Imovel.id.asc()).first()
-    if imovel is None:
-        return {"pedidos": 0, "processados": 0, "concluido": True}
+    if excluir_ufs is not None:
+        imovel = proximo_de_outra_uf(db, excluir_ufs)
+        if imovel is None:
+            return {"pedidos": 0, "processados": 0, "ufs_esgotadas": True}
+    else:
+        consulta = db.query(Imovel).filter(filtro_pendentes())
+        if estado.cursor_id is not None:
+            consulta = consulta.filter(Imovel.id > estado.cursor_id)
+        imovel = consulta.order_by(Imovel.id.asc()).first()
+        if imovel is None:
+            return {"pedidos": 0, "processados": 0, "concluido": True}
     imovel_id = imovel.id
 
     def pedir(url, tipo):
@@ -481,7 +514,8 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
             antes_de_pedir(imovel_id)
         return pedir_real(url, tipo)
 
-    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel_id, "atualizados": 0}
+    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel_id, "atualizados": 0,
+                 "uf": imovel.estado}
     resposta = pedir(imovel.url, "pagina")
     if not resposta.ok:
         resultado.update(paragem=resposta.veredicto, destino=resposta.destino)
