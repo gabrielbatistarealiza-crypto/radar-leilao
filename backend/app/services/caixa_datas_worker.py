@@ -23,6 +23,7 @@ from app.services.caixa_datas_edital import (
     PARAGEM_MANUAL,
     e_paragem_manual,
     filtro_pendentes,
+    processar_edital_pendente,
     processar_passo,
 )
 
@@ -143,7 +144,8 @@ def reativar_worker_datas_caixa(db) -> None:
     estado.atualizado_em = datetime.utcnow()
 
 
-def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor_na_paragem):
+def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor_na_paragem,
+                    edital_pendente: dict | None = None):
     """Passo comum ao worker e ao endpoint manual.
 
     `cursor` é o estado do worker ou um cursor próprio do endpoint manual.
@@ -165,10 +167,17 @@ def _executar_passo(db, estado, cursor, agora, pedir, max_pedidos, recuar_cursor
         db.commit()
 
     try:
-        resultado = processar_passo(
-            db, cursor, pedir=pedir, max_pedidos=min(max_pedidos, restantes),
-            antes_de_pedir=marcar_pedido_em_curso,
-        )
+        if edital_pendente:
+            # Só o edital adiado numa volta anterior: 1 pedido, sem ler página.
+            resultado = processar_edital_pendente(
+                db, edital_pendente["imovel_id"], edital_pendente["link"], pedir=pedir,
+                antes_de_pedir=marcar_pedido_em_curso,
+            )
+        else:
+            resultado = processar_passo(
+                db, cursor, pedir=pedir, max_pedidos=min(max_pedidos, restantes),
+                antes_de_pedir=marcar_pedido_em_curso,
+            )
     except Exception:
         # Resultado desconhecido: a marca (se já gravada) fica e tudo
         # permanece parado até revisão manual.
@@ -238,12 +247,14 @@ def passo_manual_datas(db, depois_id: int | None = None, pedir=None,
 
 
 def processar_lote_datas_caixa(
-    db, agora: datetime | None = None, pedir=None, max_pedidos: int = 2
+    db, agora: datetime | None = None, pedir=None, max_pedidos: int = 2,
+    edital_pendente: dict | None = None,
 ) -> dict:
     """Uma volta: o próximo imóvel pendente (e o seu edital); avança o cursor.
 
     `pedir` substitui o pedido HTTP (testes). `max_pedidos` (1 ou 2) limita os
-    GET desta volta; com 1, o edital fica para uma volta seguinte.
+    GET desta volta; com 1, o edital fica para uma volta seguinte, que o pede
+    passando `edital_pendente={"imovel_id": ..., "link": ...}`.
     """
     estado = db.get(CaixaDataWorkerState, 1)
     if estado is None:
@@ -266,7 +277,7 @@ def processar_lote_datas_caixa(
         }
 
     resultado = _executar_passo(db, estado, estado, agora, pedir, max_pedidos,
-                                recuar_cursor_na_paragem=True)
+                                recuar_cursor_na_paragem=True, edital_pendente=edital_pendente)
     if resultado.get("limite_diario_atingido"):
         return resultado
 

@@ -228,6 +228,121 @@ def test_edital_que_nao_confere_nao_grava_nada_do_edital(sessao, fabrica, caso, 
     assert estado(sessao).bloqueado_ate == ce.PARAGEM_MANUAL
 
 
+# ------------------------------- página numa volta, edital na volta seguinte
+
+def test_edital_adiado_e_pedido_sozinho_na_volta_seguinte(sessao, fabrica):
+    a, b, c = imovel(fabrica, N1), imovel(fabrica, N2), imovel(fabrica, N3)
+    rede = Rede({a.url: pagina(D1, D2), EDITAL_A: pdf([N1, N2, N3])})
+
+    r1 = worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1)
+    assert rede.pedidos == [(a.url, "pagina")]
+    assert r1["estado_edital"] == "ADIADO_LIMITE_DE_PEDIDOS" and r1["edital"] == EDITAL_A
+    assert estado(sessao).bloqueado_ate is None
+
+    r2 = worker.processar_lote_datas_caixa(
+        sessao, pedir=rede, max_pedidos=1, edital_pendente={"imovel_id": a.id, "link": EDITAL_A})
+
+    recarregar(sessao, a, b, c)
+    assert rede.pedidos == [(a.url, "pagina"), (EDITAL_A, "edital")]  # nunca a página outra vez
+    assert r2["pedidos"] == 1 and r2["so_edital"] is True and r2["estado_edital"] == "LIDO"
+    assert r2["preenchidos_pelo_edital"] == 2
+    for i in (a, b, c):
+        assert (i.data_primeiro_leilao, i.data_segundo_leilao, i.link_edital) == (D1, D2, EDITAL_A)
+    assert estado(sessao).cursor_id == a.id and estado(sessao).bloqueado_ate is None
+
+
+def test_edital_adiado_que_entretanto_foi_lido_nao_e_pedido(sessao, fabrica):
+    a = imovel(fabrica, N1, data_primeiro_leilao=D1, data_segundo_leilao=D2)
+    imovel(fabrica, N2, data_primeiro_leilao=D1, data_segundo_leilao=D2, link_edital=EDITAL_A)
+    rede = Rede({})
+
+    r = worker.processar_lote_datas_caixa(
+        sessao, pedir=rede, max_pedidos=1, edital_pendente={"imovel_id": a.id, "link": EDITAL_A})
+
+    recarregar(sessao, a)
+    assert rede.pedidos == [] and r["pedidos"] == 0 and r["estado_edital"] == "JA_LIDO"
+    assert a.link_edital == EDITAL_A
+
+
+def test_bloqueio_no_edital_adiado_para_e_volta_a_pagina_depois(sessao, fabrica):
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    rede = Rede({a.url: pagina(D1, D2), EDITAL_A: RespostaCaixa("REDIRECIONADO")})
+    worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1)
+
+    r = worker.processar_lote_datas_caixa(
+        sessao, pedir=rede, max_pedidos=1, edital_pendente={"imovel_id": a.id, "link": EDITAL_A})
+
+    recarregar(sessao, a, b)
+    assert r["paragem"] == "REDIRECIONADO" and r["pedidos"] == 1
+    assert estado(sessao).bloqueado_ate == ce.PARAGEM_MANUAL
+    assert a.data_primeiro_leilao == D1 and a.link_edital is None and b.data_primeiro_leilao is None
+
+
+def test_edital_adiado_que_nao_confere_com_a_pagina_para(sessao, fabrica):
+    a = imovel(fabrica, N1)
+    rede = Rede({a.url: pagina(date(2026, 10, 21), D2), EDITAL_A: pdf([N1])})
+    worker.processar_lote_datas_caixa(sessao, pedir=rede, max_pedidos=1)
+
+    r = worker.processar_lote_datas_caixa(
+        sessao, pedir=rede, max_pedidos=1, edital_pendente={"imovel_id": a.id, "link": EDITAL_A})
+
+    assert r["paragem"] == "PAGINA_E_EDITAL_DIFERENTES"
+
+
+# --------------------------------------- edital novo para imóveis não vendidos
+
+NOVO1, NOVO2 = date(2026, 11, 17), date(2026, 11, 24)
+
+
+@pytest.fixture()
+def hoje_30_10(monkeypatch):
+    monkeypatch.setattr(ce, "_hoje", lambda: date(2026, 10, 30))
+
+
+def test_edital_novo_substitui_datas_que_ja_passaram(sessao, fabrica, hoje_30_10):
+    from app.models.imovel import ImovelEvento
+
+    a = imovel(fabrica, N1)  # novo na lista, sem datas
+    antigo = imovel(fabrica, N2, data_primeiro_leilao=D1, data_segundo_leilao=D2,
+                    link_edital="https://venda-imoveis.caixa.gov.br/editais/ANTIGO.PDF")
+    rede = Rede({a.url: pagina(NOVO1, NOVO2), EDITAL_A: pdf([N1, N2], d1=NOVO1, d2=NOVO2)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, a, antigo)
+    assert "paragem" not in r and r["renovados_pelo_edital"] == 1
+    assert (antigo.data_primeiro_leilao, antigo.data_segundo_leilao) == (NOVO1, NOVO2)
+    assert antigo.link_edital == EDITAL_A
+    assert (a.data_primeiro_leilao, a.data_segundo_leilao) == (NOVO1, NOVO2)
+    eventos = sessao.query(ImovelEvento).filter(ImovelEvento.imovel_id == antigo.id).all()
+    assert [e.tipo for e in eventos] == [ImovelEvento.DATAS]
+
+
+def test_datas_diferentes_ainda_por_acontecer_continuam_a_parar(sessao, fabrica, hoje_30_10):
+    a = imovel(fabrica, N1)
+    outro = imovel(fabrica, N2, data_primeiro_leilao=date(2026, 11, 3), data_segundo_leilao=date(2026, 11, 9))
+    rede = Rede({a.url: pagina(NOVO1, NOVO2), EDITAL_A: pdf([N1, N2], d1=NOVO1, d2=NOVO2)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, outro)
+    assert r["paragem"] == "EDITAL_INCOERENTE"
+    assert outro.data_segundo_leilao == date(2026, 11, 9)
+
+
+def test_edital_tambem_ja_passado_com_outras_datas_para(sessao, fabrica, hoje_30_10):
+    # Edital antigo lido depois de outro: não troca umas datas passadas por outras.
+    a = imovel(fabrica, N1)
+    outro = imovel(fabrica, N2, data_primeiro_leilao=date(2026, 10, 5), data_segundo_leilao=date(2026, 10, 12))
+    rede = Rede({a.url: pagina(D1, D2), EDITAL_A: pdf([N1, N2])})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    recarregar(sessao, outro)
+    assert r["paragem"] == "EDITAL_INCOERENTE"
+    assert outro.data_segundo_leilao == date(2026, 10, 12)
+
+
 def test_imovel_de_licitacao_aberta_no_edital_nao_recebe_datas_de_leilao(sessao, fabrica):
     a = imovel(fabrica, N1)
     lic = imovel(fabrica, N2, modalidade="Licitação Aberta")

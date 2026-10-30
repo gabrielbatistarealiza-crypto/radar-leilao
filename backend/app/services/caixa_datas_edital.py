@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from sqlalchemy import and_, not_, or_
 
-from app.models.imovel import Imovel
+from app.models.imovel import Imovel, ImovelEvento
 
 logger = logging.getLogger(__name__)
 
@@ -297,18 +297,49 @@ def _sem_datas(imovel) -> bool:
             and imovel.data_licitacao_aberta is None)
 
 
+def _hoje() -> date:
+    """Data de hoje (UTC); função própria para os testes a poderem fixar."""
+    return datetime.utcnow().date()
+
+
+def _ultima_data(datas) -> date | None:
+    presentes = [d for d in datas if d is not None]
+    return max(presentes) if presentes else None
+
+
+def _datas_vencidas(imovel, hoje: date) -> bool:
+    """O último leilão conhecido do imóvel já passou."""
+    ultima = _ultima_data((imovel.data_primeiro_leilao, imovel.data_segundo_leilao))
+    return ultima is not None and ultima < hoje
+
+
 def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
-    """Valida e aplica o edital. Devolve {"paragem": motivo} sem gravar nada se não conferir."""
+    """Valida e aplica o edital. Devolve {"paragem": motivo} sem gravar nada se não conferir.
+
+    Um imóvel que não foi vendido volta a um edital novo com datas novas. Se as
+    datas que tem já passaram e as do edital ainda não, o edital substitui-as
+    (fica um evento no histórico). Datas diferentes ainda por acontecer
+    continuam a parar tudo para revisão (EDITAL_INCOERENTE).
+    """
     caixa = db.query(Imovel).filter(Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)).all()
     ativos = [i for i in caixa if numero_do_imovel(i.url) in edital.numeros]
     sem_venda = [i for i in caixa if numero_do_imovel(i.url) in edital.numeros_sem_venda]
     if atual not in ativos and atual not in sem_venda:
         return {"paragem": "IMOVEL_FORA_DO_EDITAL"}
     esperado = (edital.data_primeiro_leilao, edital.data_segundo_leilao)
+    hoje = _hoje()
+    ultima_do_edital = _ultima_data(esperado)
+    edital_por_acontecer = ultima_do_edital is not None and ultima_do_edital >= hoje
+    a_renovar = []
     for i in ativos:
         tem = (i.data_primeiro_leilao, i.data_segundo_leilao)
-        if any(tem) and tem != esperado or i.data_licitacao_aberta is not None:
+        if i.data_licitacao_aberta is not None:
             return {"paragem": "EDITAL_INCOERENTE", "imovel_incoerente": i.id}
+        if any(tem) and tem != esperado:
+            if edital_por_acontecer and _datas_vencidas(i, hoje) and not _e_licitacao(i):
+                a_renovar.append(i)
+            else:
+                return {"paragem": "EDITAL_INCOERENTE", "imovel_incoerente": i.id}
     preenchidos = 0
     for i in ativos + sem_venda:
         if i.link_edital is None:
@@ -317,8 +348,70 @@ def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
         if _sem_datas(i) and not _e_licitacao(i):
             i.data_primeiro_leilao, i.data_segundo_leilao = esperado
             preenchidos += 1
+    agora = datetime.utcnow()
+    for i in a_renovar:
+        i.data_primeiro_leilao, i.data_segundo_leilao = esperado
+        i.link_edital = link  # o edital em vigor passa a ser este
+        db.add(ImovelEvento(imovel_id=i.id, tipo=ImovelEvento.DATAS, momento=agora))
     return {"membros_na_base": len(ativos), "sem_venda_na_base": len(sem_venda),
-            "preenchidos_pelo_edital": preenchidos}
+            "preenchidos_pelo_edital": preenchidos, "renovados_pelo_edital": len(a_renovar)}
+
+
+def _edital_ja_lido(db, link: str, imovel_id: int) -> bool:
+    # link_edital só é gravado depois de o edital ter sido lido e aplicado com
+    # sucesso; por isso serve de marca de "edital já lido".
+    return db.query(Imovel.id).filter(Imovel.link_edital == link, Imovel.id != imovel_id).first() is not None
+
+
+def _ler_e_aplicar_edital(db, imovel, link: str, pedir, resultado: dict, datas_pagina) -> dict:
+    """Pede o edital (1 GET), confere-o com a página e aplica-o. Altera e devolve `resultado`."""
+    resultado["pedidos"] += 1
+    resposta = pedir(link, "edital")
+    if not resposta.ok:
+        resultado.update(paragem=resposta.veredicto, destino=resposta.destino)
+        return resultado
+    edital = ler_edital(resposta.corpo)
+    if edital is None:
+        resultado["paragem"] = "EDITAL_NAO_INTERPRETAVEL"
+        return resultado
+    pagina = (imovel.data_primeiro_leilao, imovel.data_segundo_leilao)
+    if any(datas_pagina[:2]) and pagina != (edital.data_primeiro_leilao, edital.data_segundo_leilao):
+        resultado["paragem"] = "PAGINA_E_EDITAL_DIFERENTES"
+        return resultado
+    aplicado = _aplicar_edital(db, edital, link, imovel)
+    resultado.update(aplicado)
+    if "paragem" not in aplicado:
+        resultado["estado_edital"] = "LIDO"
+        resultado["atualizados"] += aplicado["preenchidos_pelo_edital"] + aplicado["renovados_pelo_edital"]
+    return resultado
+
+
+def processar_edital_pendente(db, imovel_id: int, link: str, pedir=None, antes_de_pedir=None) -> dict:
+    """Só o edital que ficou adiado numa volta anterior (1 GET, nunca a página).
+
+    Permite espaçar os pedidos: página numa volta, edital na seguinte. As datas
+    que a página trouxe já estão gravadas no imóvel e servem para conferir.
+    """
+    imovel = db.get(Imovel, imovel_id)
+    resultado = {"pedidos": 0, "processados": 0, "imovel_id": imovel_id, "atualizados": 0,
+                 "edital": link, "so_edital": True}
+    if imovel is None:
+        resultado["estado_edital"] = "IMOVEL_DESAPARECEU"
+        return resultado
+    if _edital_ja_lido(db, link, imovel_id):
+        if imovel.link_edital is None:
+            imovel.link_edital = link
+        resultado["estado_edital"] = "JA_LIDO"
+        return resultado
+    pedir_real = pedir or pedir_caixa
+
+    def pedir_(url, tipo):
+        if antes_de_pedir:
+            antes_de_pedir(imovel_id)
+        return pedir_real(url, tipo)
+
+    datas = (imovel.data_primeiro_leilao, imovel.data_segundo_leilao)
+    return _ler_e_aplicar_edital(db, imovel, link, pedir_, resultado, datas)
 
 
 def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None) -> dict:
@@ -368,34 +461,14 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
     if not link:
         resultado["estado_edital"] = "SEM_EDITAL_NA_PAGINA"
         return resultado
-    # link_edital só é gravado depois de o edital ter sido lido e aplicado com
-    # sucesso; por isso serve de marca de "edital já lido".
-    ja_lido = db.query(Imovel.id).filter(Imovel.link_edital == link, Imovel.id != imovel.id).first()
-    if ja_lido:
+    if _edital_ja_lido(db, link, imovel.id):
         if imovel.link_edital is None:
             imovel.link_edital = link
         resultado["estado_edital"] = "JA_LIDO"
         return resultado
     if max_pedidos < 2:
+        # O chamador pode pedi-lo numa volta seguinte (processar_edital_pendente).
         resultado["estado_edital"] = "ADIADO_LIMITE_DE_PEDIDOS"
         return resultado
 
-    resultado["pedidos"] = 2
-    resposta = pedir(link, "edital")
-    if not resposta.ok:
-        resultado.update(paragem=resposta.veredicto, destino=resposta.destino)
-        return resultado
-    edital = ler_edital(resposta.corpo)
-    if edital is None:
-        resultado["paragem"] = "EDITAL_NAO_INTERPRETAVEL"
-        return resultado
-    pagina = (imovel.data_primeiro_leilao, imovel.data_segundo_leilao)
-    if any(datas[:2]) and pagina != (edital.data_primeiro_leilao, edital.data_segundo_leilao):
-        resultado["paragem"] = "PAGINA_E_EDITAL_DIFERENTES"
-        return resultado
-    aplicado = _aplicar_edital(db, edital, link, imovel)
-    resultado.update(aplicado)
-    if "paragem" not in aplicado:
-        resultado["estado_edital"] = "LIDO"
-        resultado["atualizados"] += aplicado["preenchidos_pelo_edital"]
-    return resultado
+    return _ler_e_aplicar_edital(db, imovel, link, pedir, resultado, datas)

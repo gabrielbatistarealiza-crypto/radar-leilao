@@ -325,15 +325,23 @@ def main() -> int:
             pedidos = 0
             volta = 0
             vazias_seguidas = 0
+            # Um pedido por volta: a página numa volta e o seu edital na seguinte,
+            # nunca dois pedidos seguidos (a 30/10/2026 o edital pedido logo a seguir
+            # à página foi redirecionado pela proteção da CAIXA).
+            edital_pendente = None
             while not parou and pedidos < args.max_pedidos_datas:
                 if volta:
                     time.sleep(args.intervalo_datas)
                 volta += 1
                 antes = len(guardados)
-                r = executar_lote_datas(db, max_pedidos=min(2, args.max_pedidos_datas - pedidos), pedir=pedir)
+                r = executar_lote_datas(db, max_pedidos=1, pedir=pedir, edital_pendente=edital_pendente)
+                edital_pendente = None
+                if r.get("estado_edital") == "ADIADO_LIMITE_DE_PEDIDOS" and r.get("edital"):
+                    edital_pendente = {"imovel_id": r["imovel_id"], "link": r["edital"]}
                 pedidos += r.get("pedidos", 0)
                 chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "fotos", "fotos_novas",
-                          "estado_edital", "preenchidos_pelo_edital", "paragem", "concluido",
+                          "estado_edital", "edital", "so_edital", "preenchidos_pelo_edital",
+                          "renovados_pelo_edital", "membros_na_base", "paragem", "concluido",
                           "aguardando_bloqueio", "ocupado", "limite_diario_atingido")
                 dados = {k: r[k] for k in chaves if k in r}
                 dados["html_guardado"] = guardados[antes:]
@@ -353,8 +361,12 @@ def main() -> int:
                                                  "paginas_vazias_seguidas": vazias_seguidas,
                                                  "pasta_paginas": str(pasta_paginas)})
                     parou = True
-                if r.get("concluido"):
+                if r.get("concluido") and not edital_pendente:
                     break
+            if edital_pendente and not parou:
+                # Acabou a quota desta execução com um edital por ler: fica registado;
+                # a próxima execução volta a chegar a ele pelos imóveis ainda sem datas.
+                linha_registo(f, "edital_por_ler", edital_pendente)
         print(f"Fim. Registo: {registo}")
         return SAIDA_PAROU if parou else 0
     finally:
