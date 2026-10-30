@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Login from "./Login";
+import { RedefinirSenha } from "./RecuperarSenha";
 import Admin from "./Admin";
 import MinhasOportunidades from "./MinhasOportunidades";
 import Corretor from "./Corretor";
@@ -664,6 +665,16 @@ function App() {
       // o imóvel que já estava carregado no frontend.
       setImovelDetalhes(imovel);
     }
+  }
+
+  // A ligação do e-mail de recuperação abre esta página com ou sem sessão.
+  if (location.pathname === "/redefinir-senha") {
+    return (
+      <RedefinirSenha
+        codigo={new URLSearchParams(location.search).get("codigo") || ""}
+        onConcluido={() => navegar("/", { replace: true })}
+      />
+    );
   }
 
   if (verificandoAutenticacao) {
