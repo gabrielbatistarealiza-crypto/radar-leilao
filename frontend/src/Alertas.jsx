@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, Trash2, CalendarClock, MapPin, Pencil, X } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL } from "./api";
 
 function moeda(valor) {
   if (valor == null) return "Preço não informado";

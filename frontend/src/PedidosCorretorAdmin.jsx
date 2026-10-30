@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { mensagemDeErro } from "./Registo";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { API_URL } from "./api";
 
 // Texto da confirmação antes de aprovar: avisa se o cliente perde oportunidades.
 export function textoConfirmacaoAprovar(pedido) {
