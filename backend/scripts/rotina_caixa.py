@@ -187,7 +187,8 @@ def aplicar_edital(db, args, onde: str) -> int:
     if not link or "/editais/" not in link:
         print("Recusado: não sei o link deste edital. Indique --link-edital com o link que a página mostra.")
         return 1
-    r = aplicar_edital_local(db, caminho.read_bytes(), link, gravar=args.confirmo_gravar)
+    r = aplicar_edital_local(db, caminho.read_bytes(), link, gravar=args.confirmo_gravar,
+                             saltar_incoerentes=args.saltar_incoerentes)
     print(json.dumps({"base": onde, "ficheiro": caminho.name, **r}, ensure_ascii=False, default=str))
     if r.get("recusado") or r.get("paragem"):
         print("Nada foi gravado.")
@@ -243,6 +244,9 @@ def main() -> int:
                         "SEM contactar a CAIXA")
     p.add_argument("--link-edital", default=None,
                    help="com --aplicar-edital: link do edital, se o nome do ficheiro não for EL....PDF")
+    p.add_argument("--saltar-incoerentes", action="store_true",
+                   help="com --aplicar-edital: imóveis com datas futuras diferentes das do edital "
+                        "ficam como estão (listados no resultado) em vez de recusar o edital inteiro")
     p.add_argument("--uma-por-uf", action="store_true",
                    help="na recolha de datas, lê um imóvel de cada estado (os com mais pendentes "
                         "primeiro) para descobrir depressa os editais regionais")
@@ -257,6 +261,8 @@ def main() -> int:
 
     sem_caixa = [nome for nome, ligado in (("--importar-descarregados", args.importar_descarregados),
                                            ("--aplicar-edital", bool(args.aplicar_edital))) if ligado]
+    if args.saltar_incoerentes and not args.aplicar_edital:
+        sys.exit("Recusado: --saltar-incoerentes só existe com --aplicar-edital.")
     if len(sem_caixa) > 1 or (sem_caixa and (args.lista or args.max_pedidos_datas)):
         sys.exit(f"Recusado: {' e '.join(sem_caixa)} não se junta(m) a outras etapas.")
     if not args.lista and args.max_pedidos_datas == 0 and not sem_caixa:

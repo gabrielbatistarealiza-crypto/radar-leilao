@@ -314,7 +314,7 @@ def _datas_vencidas(imovel, hoje: date) -> bool:
     return ultima is not None and ultima < hoje
 
 
-def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
+def _aplicar_edital(db, edital: Edital, link: str, atual, saltar_incoerentes: bool = False) -> dict:
     """Valida e aplica o edital. Devolve {"paragem": motivo} sem gravar nada se não conferir.
 
     Um imóvel que não foi vendido volta a um edital novo com datas novas. Se as
@@ -331,16 +331,24 @@ def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
     hoje = _hoje()
     ultima_do_edital = _ultima_data(esperado)
     edital_por_acontecer = ultima_do_edital is not None and ultima_do_edital >= hoje
-    a_renovar = []
+    a_renovar, saltados = [], []
     for i in ativos:
         tem = (i.data_primeiro_leilao, i.data_segundo_leilao)
         if i.data_licitacao_aberta is not None:
-            return {"paragem": "EDITAL_INCOERENTE", "imovel_incoerente": i.id}
-        if any(tem) and tem != esperado:
+            incoerente = True
+        elif any(tem) and tem != esperado:
             if edital_por_acontecer and _datas_vencidas(i, hoje) and not _e_licitacao(i):
                 a_renovar.append(i)
-            else:
+                continue
+            incoerente = True
+        else:
+            incoerente = False
+        if incoerente:
+            if not saltar_incoerentes:
                 return {"paragem": "EDITAL_INCOERENTE", "imovel_incoerente": i.id}
+            # Só na aplicação manual: este fica como está e é listado para revisão.
+            saltados.append(i)
+    ativos = [i for i in ativos if i not in saltados]
     preenchidos = 0
     for i in ativos + sem_venda:
         if i.link_edital is None:
@@ -354,8 +362,15 @@ def _aplicar_edital(db, edital: Edital, link: str, atual) -> dict:
         i.data_primeiro_leilao, i.data_segundo_leilao = esperado
         i.link_edital = link  # o edital em vigor passa a ser este
         db.add(ImovelEvento(imovel_id=i.id, tipo=ImovelEvento.DATAS, momento=agora))
-    return {"membros_na_base": len(ativos), "sem_venda_na_base": len(sem_venda),
-            "preenchidos_pelo_edital": preenchidos, "renovados_pelo_edital": len(a_renovar)}
+    resultado = {"membros_na_base": len(ativos) + len(saltados), "sem_venda_na_base": len(sem_venda),
+                 "preenchidos_pelo_edital": preenchidos, "renovados_pelo_edital": len(a_renovar)}
+    if saltados:
+        resultado["saltados_incoerentes"] = [
+            {"imovel_id": i.id, "numero": numero_do_imovel(i.url),
+             "datas_atuais": [d.isoformat() if d else None for d in (i.data_primeiro_leilao, i.data_segundo_leilao)]}
+            for i in saltados
+        ]
+    return resultado
 
 
 def _edital_ja_lido(db, link: str, imovel_id: int) -> bool:
@@ -400,7 +415,8 @@ def link_do_ficheiro_edital(nome_ficheiro: str) -> str | None:
     return f"https://{DOMINIO_CAIXA}/editais/{m.group(1).upper()}.PDF" if m else None
 
 
-def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False) -> dict:
+def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False,
+                         saltar_incoerentes: bool = False) -> dict:
     """Aplica um edital já descarregado (PDF no disco), sem contactar a CAIXA.
 
     Mesmas verificações do worker (_aplicar_edital): preenche quem não tem datas,
@@ -423,7 +439,8 @@ def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False) -> d
     if not membros:
         db.rollback()
         return {**resumo, "recusado": "NENHUM_IMOVEL_DA_BASE_NO_EDITAL"}
-    aplicado = _aplicar_edital(db, edital, link, min(membros, key=lambda i: i.id))
+    aplicado = _aplicar_edital(db, edital, link, min(membros, key=lambda i: i.id),
+                               saltar_incoerentes=saltar_incoerentes)
     if "paragem" in aplicado or not gravar:
         db.rollback()
     else:
