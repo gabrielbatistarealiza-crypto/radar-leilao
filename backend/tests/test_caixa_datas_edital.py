@@ -400,6 +400,36 @@ def test_edital_local_incoerente_nao_grava(sessao, fabrica, hoje_30_10):
     assert a.data_primeiro_leilao is None and a.link_edital is None
 
 
+def test_edital_local_pode_saltar_os_incoerentes_e_aplicar_o_resto(sessao, fabrica, hoje_30_10):
+    a, b = imovel(fabrica, N1), imovel(fabrica, N2)
+    outro = imovel(fabrica, N3, data_primeiro_leilao=date(2026, 11, 3), data_segundo_leilao=date(2026, 11, 9),
+                   link_edital="https://venda-imoveis.caixa.gov.br/editais/OUTRO.PDF")
+
+    r = ce.aplicar_edital_local(sessao, pdf([N1, N2, N3], d1=NOVO1, d2=NOVO2), EDITAL_A,
+                                gravar=True, saltar_incoerentes=True)
+
+    recarregar(sessao, a, b, outro)
+    assert r["gravado"] is True and "paragem" not in r
+    assert r["preenchidos_pelo_edital"] == 2 and r["membros_na_base"] == 3
+    assert r["saltados_incoerentes"] == [
+        {"imovel_id": outro.id, "numero": N3, "datas_atuais": ["2026-11-03", "2026-11-09"]}]
+    assert (a.data_primeiro_leilao, b.link_edital) == (NOVO1, EDITAL_A)
+    # O incoerente fica exatamente como estava.
+    assert (outro.data_primeiro_leilao, outro.data_segundo_leilao) == (date(2026, 11, 3), date(2026, 11, 9))
+    assert outro.link_edital.endswith("OUTRO.PDF")
+
+
+def test_o_worker_nunca_salta_incoerentes(sessao, fabrica, hoje_30_10):
+    # Só a aplicação manual (com revisão do resultado) pode saltar; o worker pára.
+    a = imovel(fabrica, N1)
+    imovel(fabrica, N2, data_primeiro_leilao=date(2026, 11, 3), data_segundo_leilao=date(2026, 11, 9))
+    rede = Rede({a.url: pagina(NOVO1, NOVO2), EDITAL_A: pdf([N1, N2], d1=NOVO1, d2=NOVO2)})
+
+    r = worker.processar_lote_datas_caixa(sessao, pedir=rede)
+
+    assert r["paragem"] == "EDITAL_INCOERENTE"
+
+
 @pytest.mark.parametrize("corpo, motivo", [
     (b"<html>bloqueio</html>", "EDITAL_NAO_INTERPRETAVEL"),
     (pdf(["99999999"]), "NENHUM_IMOVEL_DA_BASE_NO_EDITAL"),
