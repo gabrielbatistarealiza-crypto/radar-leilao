@@ -59,6 +59,10 @@ class Imovel(ImovelBase):
     atualizado_em: Optional[datetime] = None
     imagens: List[str] = Field(default_factory=list)
     economia_m2: Optional[float] = None
+    # Valores do edital; valor_leilao passa a ser o menor destes (ou o da lista).
+    valor_lista: Optional[float] = None
+    valor_primeiro_leilao: Optional[float] = None
+    valor_segundo_leilao: Optional[float] = None
     # False: saiu da lista da Caixa (continua na base, fora da pesquisa).
     na_lista: bool = True
     saiu_da_lista_em: Optional[datetime] = None

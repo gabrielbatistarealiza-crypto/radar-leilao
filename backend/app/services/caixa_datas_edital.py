@@ -212,17 +212,45 @@ class Edital:
     data_segundo_leilao: date
     numeros: set[str]  # lotes à venda (número seguido dos valores); sem zeros à esquerda
     numeros_sem_venda: set[str] = field(default_factory=set)  # ANULADO / Arrematado
+    # número -> (valor de venda no 1.º leilão, no 2.º leilão, valor de avaliação), em R$
+    valores: dict[str, tuple[float, float, float]] = field(default_factory=dict)
 
 
 # "Número do bem" no Anexo II: 8 a 13 dígitos seguidos dos valores de venda
 # (lote ativo) ou de ANULADO / Arrematado. Não apanha IPTU nem matrículas,
 # que vêm seguidos de outro texto (ex.: "IPTU: 0102141074001 Matrícula").
-_RE_BEM_COM_VALOR = re.compile(r"(?<![\w.,/-])(\d{8,13})\s+\d{1,3}(?:\.\d{3})*,\d{2}")
+_VALOR = r"\d{1,3}(?:\.\d{3})*,\d{2}"
+_RE_BEM_COM_VALOR = re.compile(rf"(?<![\w.,/-])(\d{{8,13}})\s+{_VALOR}")
 _RE_BEM_SEM_VENDA = re.compile(r"(?<![\w.,/-])(\d{8,13})[ \t]{2,}(?:ANULADO|Arrematado)\b")
+# Colunas do Anexo II: VALOR DE VENDA 1º LEILÃO, VALOR DE VENDA 2º LEILÃO, VALOR DE AVALIAÇÃO.
+_RE_BEM_TRES_VALORES = re.compile(
+    rf"(?<![\w.,/-])(\d{{8,13}})\s+({_VALOR})\s+({_VALOR})\s+({_VALOR})(?![\d,])"
+)
 
 
 def _normalizar_numero(numero: str) -> str:
     return numero.lstrip("0") or "0"
+
+
+def _reais(texto: str) -> float:
+    return float(texto.replace(".", "").replace(",", "."))
+
+
+def _valores_do_anexo(anexo: str) -> dict[str, tuple[float, float, float]]:
+    """Número do bem -> (1.º leilão, 2.º leilão, avaliação).
+
+    Um número que apareça com valores diferentes fica de fora (não se adivinha)."""
+    valores: dict[str, tuple[float, float, float]] = {}
+    repetidos = set()
+    for numero, v1, v2, aval in _RE_BEM_TRES_VALORES.findall(anexo):
+        chave = _normalizar_numero(numero)
+        trio = (_reais(v1), _reais(v2), _reais(aval))
+        if chave in valores and valores[chave] != trio:
+            repetidos.add(chave)
+        valores[chave] = trio
+    for chave in repetidos:
+        valores.pop(chave)
+    return valores
 
 
 def interpretar_texto_edital(texto: str) -> Edital | None:
@@ -244,7 +272,8 @@ def interpretar_texto_edital(texto: str) -> Edital | None:
     anexo = texto[inicio:]
     numeros = {_normalizar_numero(n) for n in _RE_BEM_COM_VALOR.findall(anexo)}
     sem_venda = {_normalizar_numero(n) for n in _RE_BEM_SEM_VENDA.findall(anexo)} - numeros
-    return Edital(d1, d2, numeros, sem_venda) if numeros else None
+    valores = {n: v for n, v in _valores_do_anexo(anexo).items() if n in numeros}
+    return Edital(d1, d2, numeros, sem_venda, valores) if numeros else None
 
 
 def ler_edital(corpo: bytes) -> Edital | None:
@@ -357,13 +386,22 @@ def _aplicar_edital(db, edital: Edital, link: str, atual, saltar_incoerentes: bo
         if _sem_datas(i) and not _e_licitacao(i):
             i.data_primeiro_leilao, i.data_segundo_leilao = esperado
             preenchidos += 1
+    # Valores de venda do 1.º e 2.º leilão (a lista da Caixa só traz um preço,
+    # que nos leilões SFI é igual à avaliação). O edital em vigor substitui os anteriores.
+    com_valores = 0
+    for i in ativos:
+        trio = edital.valores.get(numero_do_imovel(i.url))
+        if trio and not _e_licitacao(i):
+            i.valor_primeiro_leilao, i.valor_segundo_leilao = trio[0], trio[1]
+            com_valores += 1
     agora = datetime.utcnow()
     for i in a_renovar:
         i.data_primeiro_leilao, i.data_segundo_leilao = esperado
         i.link_edital = link  # o edital em vigor passa a ser este
         db.add(ImovelEvento(imovel_id=i.id, tipo=ImovelEvento.DATAS, momento=agora))
     resultado = {"membros_na_base": len(ativos) + len(saltados), "sem_venda_na_base": len(sem_venda),
-                 "preenchidos_pelo_edital": preenchidos, "renovados_pelo_edital": len(a_renovar)}
+                 "preenchidos_pelo_edital": preenchidos, "renovados_pelo_edital": len(a_renovar),
+                 "valores_de_leilao_gravados": com_valores}
     if saltados:
         resultado["saltados_incoerentes"] = [
             {"imovel_id": i.id, "numero": numero_do_imovel(i.url),
@@ -468,7 +506,8 @@ def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False,
         return {"recusado": "EDITAL_NAO_INTERPRETAVEL"}
     resumo = {"link": link, "data_primeiro_leilao": edital.data_primeiro_leilao.isoformat(),
               "data_segundo_leilao": edital.data_segundo_leilao.isoformat(),
-              "numeros_no_edital": len(edital.numeros), "sem_venda_no_edital": len(edital.numeros_sem_venda)}
+              "numeros_no_edital": len(edital.numeros), "sem_venda_no_edital": len(edital.numeros_sem_venda),
+              "valores_no_edital": len(edital.valores)}
     if edital.data_segundo_leilao < _hoje():
         # Datas já passadas seriam mostradas como se fossem o próximo leilão.
         return {**resumo, "recusado": "EDITAL_JA_PASSOU"}

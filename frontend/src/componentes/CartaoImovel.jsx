@@ -1,6 +1,6 @@
 // Extraído do App.jsx na fase 5 (sem alterações de comportamento).
 import { Bath, BedDouble, Car, Columns3, ExternalLink, Heart, Home, Image as ImageIcon, Info, MapPin, Ruler, Tag } from "lucide-react";
-import { alertasDoImovel, decisaoDaOportunidade, detalhesDoScore, dinheiro, prioridadeDoImovel } from "../imovel/analise";
+import { alertasDoImovel, decisaoDaOportunidade, detalhesDoScore, dinheiro, prioridadeDoImovel, valoresDosLeiloes } from "../imovel/analise";
 
 export default function CartaoImovel({
   abrirDetalhes,
@@ -29,6 +29,7 @@ export default function CartaoImovel({
   const IconeDecisao = decisao.Icone;
   const economiaPorM2 = detalhesCard.economiaPorM2;
   const condicoesCompra = detalhesCard.condicoesCompra;
+  const leiloes = valoresDosLeiloes(imovel);
 
   return (
     <article
@@ -349,6 +350,19 @@ export default function CartaoImovel({
             )}
           </details>
         </div>
+
+        {leiloes && (
+          <div className="valores-leiloes" aria-label="Valores de venda do edital">
+            <div>
+              <span>1.º leilão</span>
+              <strong>{leiloes.primeiro ? dinheiro(leiloes.primeiro) : "Não informado"}</strong>
+            </div>
+            <div>
+              <span>2.º leilão</span>
+              <strong>{leiloes.segundo ? dinheiro(leiloes.segundo) : "Não informado"}</strong>
+            </div>
+          </div>
+        )}
 
         <div
           className={`decision-indicator ${decisao.classe}`}

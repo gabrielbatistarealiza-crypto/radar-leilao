@@ -5,7 +5,9 @@ import {
   calcularEconomia,
   calcularScoreOportunidade,
   dataCivil,
+  decisaoDaOportunidade,
   detalhesDoScore,
+  valoresDosLeiloes,
   dinheiro,
   formatarData,
   fotosDoImovel,
@@ -54,6 +56,39 @@ describe("desconto e economia", () => {
     expect(calcularEconomia(BASE)).toBe(100000);
     expect(calcularEconomia({ valor_avaliacao: 100, valor_leilao: 150 })).toBe(0);
     expect(calcularEconomia({})).toBe(0);
+  });
+});
+
+describe("leilão SFI e valores do edital", () => {
+  const SFI = {
+    ...BASE,
+    modalidade: "Leilão SFI - Edital Único",
+    valor_avaliacao: 140000,
+    valor_leilao: 140000,
+    ocupado: null,
+  };
+
+  it("sem edital lido não diz 'Dados insuficientes': o valor do 2.º leilão está por confirmar", () => {
+    const d = decisaoDaOportunidade(SFI);
+    expect(d.titulo).toBe("Valor do 2.º leilão por confirmar");
+    expect(d.classe).toBe("atencao");
+    expect(valoresDosLeiloes(SFI)).toBeNull();
+  });
+
+  it("com o edital, mostra os dois valores e usa o lance mínimo", () => {
+    const comEdital = { ...SFI, valor_primeiro_leilao: 149014, valor_segundo_leilao: 111258.07, valor_leilao: 111258.07 };
+    expect(valoresDosLeiloes(comEdital)).toEqual({ primeiro: 149014, segundo: 111258.07, lanceMinimo: 111258.07 });
+    expect(calcularDesconto(comEdital)).toBeCloseTo(20.53, 2);
+    expect(decisaoDaOportunidade(comEdital).titulo).not.toMatch(/insuficientes|por confirmar/);
+  });
+
+  it("edital lido sem desconto: 'Sem desconto'", () => {
+    const caro = { ...SFI, valor_primeiro_leilao: 149014, valor_segundo_leilao: 211179, valor_leilao: 149014 };
+    expect(decisaoDaOportunidade(caro).titulo).toBe("Sem desconto");
+  });
+
+  it("'Dados insuficientes' só quando faltam a avaliação ou o valor do leilão", () => {
+    expect(decisaoDaOportunidade({ ...SFI, valor_avaliacao: null }).titulo).toBe("Dados insuficientes");
   });
 });
 

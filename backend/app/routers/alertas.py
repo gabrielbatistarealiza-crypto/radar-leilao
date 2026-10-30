@@ -137,9 +137,10 @@ def _dias_ate(data):
 
 
 def _desconto(imovel):
-    if imovel.valor_avaliacao is None or imovel.valor_leilao is None or imovel.valor_avaliacao <= 0:
+    # valor_lance: o menor lance do edital (se lido) ou o preço da lista.
+    if imovel.valor_avaliacao is None or imovel.valor_lance is None or imovel.valor_avaliacao <= 0:
         return None
-    return (Decimal(str(imovel.valor_avaliacao)) - Decimal(str(imovel.valor_leilao))) / Decimal(str(imovel.valor_avaliacao)) * 100
+    return (Decimal(str(imovel.valor_avaliacao)) - Decimal(str(imovel.valor_lance))) / Decimal(str(imovel.valor_avaliacao)) * 100
 
 
 @router.get("/correspondencias")
@@ -167,7 +168,7 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
                 if desconto is not None and desconto >= criterio.desconto_minimo:
                     motivos.append(f"Desconto de {desconto.quantize(Decimal('0.1'))}% atende ao mínimo de {criterio.desconto_minimo}%.")
             if criterio.preco_maximo is not None:
-                ok = imovel.valor_leilao is not None and Decimal(str(imovel.valor_leilao)) <= criterio.preco_maximo
+                ok = imovel.valor_lance is not None and Decimal(str(imovel.valor_lance)) <= criterio.preco_maximo
                 filtros.append(ok)
                 if ok:
                     motivos.append(f"Preço de aquisição dentro do limite de R$ {criterio.preco_maximo}.")
@@ -226,7 +227,7 @@ def listar_correspondencias(db: Session = Depends(get_db), usuario: Usuario = De
                 resultados.append({
                     "criterio_id": criterio.id, "criterio_nome": criterio.nome,
                     "imovel": {"id": imovel.id, "titulo": imovel.titulo, "cidade": imovel.cidade, "estado": imovel.estado,
-                               "valor_leilao": imovel.valor_leilao, "desconto": float(desconto) if desconto is not None else None,
+                               "valor_leilao": imovel.valor_lance, "desconto": float(desconto) if desconto is not None else None,
                                "data_primeiro_leilao": imovel.data_primeiro_leilao, "data_segundo_leilao": imovel.data_segundo_leilao,
                                "data_licitacao_aberta": imovel.data_licitacao_aberta,
                                "url": imovel.url},

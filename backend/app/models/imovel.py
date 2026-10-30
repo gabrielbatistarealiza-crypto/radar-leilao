@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, DateTime, true
+from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, DateTime, and_, case, func, true
 from datetime import datetime
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 
 from app.database.database import Base
@@ -18,8 +19,11 @@ class Imovel(Base):
     estado = Column(String(2))
 
     valor_avaliacao = Column(Float)
-    valor_leilao = Column(Float)
-    desconto = Column(Float)
+    valor_leilao = Column(Float)  # "Preço" da lista da Caixa (nos leilões SFI = avaliação)
+    desconto = Column(Float)  # "Desconto" da lista da Caixa
+    # Valores de venda do edital (Anexo II). A lista da Caixa não os traz.
+    valor_primeiro_leilao = Column(Float, nullable=True)
+    valor_segundo_leilao = Column(Float, nullable=True)
 
     area = Column(Float, nullable=True)
     quartos = Column(Integer, nullable=True)
@@ -76,17 +80,43 @@ class Imovel(Base):
     def imagens(self):
         return [foto.url for foto in self.fotos]
 
+    @hybrid_property
+    def valor_lance(self):
+        """Preço mínimo para arrematar: o menor lance do edital, ou o preço da lista.
+
+        Normalmente é o 2.º leilão; quando a dívida faz o 2.º ficar acima do 1.º,
+        é o 1.º."""
+        lances = [v for v in (self.valor_primeiro_leilao, self.valor_segundo_leilao) if v is not None]
+        return min(lances) if lances else self.valor_leilao
+
+    @valor_lance.expression
+    def valor_lance(cls):
+        v1, v2 = cls.valor_primeiro_leilao, cls.valor_segundo_leilao
+        return case(
+            (and_(v1.isnot(None), v2.isnot(None), v1 < v2), v1),
+            else_=func.coalesce(v2, v1, cls.valor_leilao),
+        )
+
+    @property
+    def desconto_atual(self):
+        """Desconto do lance mínimo sobre a avaliação; sem edital, o da lista."""
+        if self.valor_primeiro_leilao is None and self.valor_segundo_leilao is None:
+            return self.desconto
+        if not self.valor_avaliacao or self.valor_avaliacao <= 0:
+            return None
+        return round((self.valor_avaliacao - self.valor_lance) / self.valor_avaliacao * 100, 2)
+
     @property
     def economia_m2(self):
         if (
             self.valor_avaliacao is None
-            or self.valor_leilao is None
+            or self.valor_lance is None
             or self.area is None
             or self.area <= 0
         ):
             return None
 
-        return (self.valor_avaliacao - self.valor_leilao) / self.area
+        return (self.valor_avaliacao - self.valor_lance) / self.area
 
 
 class ImovelImagem(Base):
