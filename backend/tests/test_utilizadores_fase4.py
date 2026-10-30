@@ -28,8 +28,12 @@ def test_admin_e_derivado_do_tipo(sessao):
     assert u.admin is False
 
 
+def test_coluna_antiga_admin_ja_nao_existe():
+    # Passo B: a migração 0007 apagou-a.
+    assert "admin" not in Usuario.__table__.c
+
+
 def test_coluna_antiga_admin_nao_e_lida_nem_escrita(sessao, motor):
-    # Passo A da remoção: com esta versão no ar a migração pode apagar a coluna.
     import re
 
     from sqlalchemy import event

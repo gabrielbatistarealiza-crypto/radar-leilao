@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy import Column, Integer, String
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.database.database import Base
@@ -32,10 +32,3 @@ class Usuario(Base):
     @admin.expression
     def admin(cls):
         return cls.tipo == TIPO_ADMIN
-
-
-# Coluna antiga "admin": continua na tabela (o esquema bate com a base), mas é
-# acrescentada depois do mapeamento, por isso nunca entra nos SELECT nem nos
-# INSERT. Assim a migração que a apaga pode correr com esta versão da API no ar.
-# Sai com essa migração.
-Usuario.__table__.append_column(Column("admin", Boolean, nullable=True))
