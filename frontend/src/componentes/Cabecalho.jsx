@@ -1,5 +1,6 @@
 // Extraído do App.jsx na fase 5 (sem alterações de comportamento).
 import { Gavel, LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
 import { ROTULOS_PAPEL } from "../papel";
 
 export default function Cabecalho({
@@ -45,9 +46,9 @@ export default function Cabecalho({
             </nav>
           )}
           {ehAdministrador && (
-            <a className="header-admin-link" href="/admin">
+            <Link className="header-admin-link" to="/admin">
               Administração
-            </a>
+            </Link>
           )}
           <button type="button" className="header-logout" onClick={sair}>
             <LogOut size={16} />

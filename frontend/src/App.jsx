@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Login from "./Login";
 import Admin from "./Admin";
 import MinhasOportunidades from "./MinhasOportunidades";
@@ -37,6 +38,8 @@ import TopoPesquisa from "./componentes/TopoPesquisa";
 import { papelDoUsuario } from "./papel";
 
 function App() {
+  const location = useLocation();
+  const navegar = useNavigate();
   const [token, setToken] = useState(
     () => localStorage.getItem("radar-leilao-token")
   );
@@ -152,8 +155,8 @@ function App() {
     setToken(null);
     setVerificandoAutenticacao(false);
 
-    if (window.location.pathname === "/admin") {
-      window.history.replaceState({}, "", "/");
+    if (location.pathname === "/admin") {
+      navegar("/", { replace: true });
     }
   }
 
@@ -685,32 +688,21 @@ function App() {
     );
   }
 
-  if (window.location.pathname === "/admin") {
-    if (!ehAdministrador) {
-      return (
-        <div className="login-page">
-          <div className="login-card">
-            <h1>Radar Leilão</h1>
-            <p>Acesso permitido apenas para administradores.</p>
+  const acessoNegado = (
+    <div className="login-page">
+      <div className="login-card">
+        <h1>Radar Leilão</h1>
+        <p>Acesso permitido apenas para administradores.</p>
 
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = "/";
-              }}
-            >
-              Voltar
-            </button>
-          </div>
-        </div>
-      );
-    }
+        <button type="button" onClick={() => navegar("/")}>
+          Voltar
+        </button>
+      </div>
+    </div>
+  );
 
-    return <Admin usuario={usuario} onLogout={sair} />;
-  }
-
-  return (
-    <div 
+  const paginaPrincipal = (
+    <div
             
     className="app">
 
@@ -1350,6 +1342,16 @@ function App() {
         />
       )}
     </div>
+  );
+
+  return (
+    <Routes>
+      <Route
+        path="/admin"
+        element={ehAdministrador ? <Admin usuario={usuario} onLogout={sair} /> : acessoNegado}
+      />
+      <Route path="*" element={paginaPrincipal} />
+    </Routes>
   );
 }
 

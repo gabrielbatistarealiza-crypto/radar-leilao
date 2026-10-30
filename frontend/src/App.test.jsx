@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import App from "./App";
 
 const IMOVEL = {
@@ -47,16 +48,33 @@ function apiFalsa({ usuario, detalhe = IMOVEL, lista = IMOVEL, paginas = 1 } = {
     }
     if (caminho.startsWith(`/imoveis/${IMOVEL.id}`)) return respostaJson(detalhe);
     if (caminho.startsWith("/pedidos-corretor/meu")) return respostaJson({ pedido: null });
+    if (caminho.startsWith("/caixa/status")) {
+      return respostaJson({
+        caixa: { status: "CONCLUIDA", estados_baixados: 27, imoveis_atualizados: 0, imoveis_removidos: 0,
+                 fotos_pendentes: 0 },
+        historico: [], banco: "ok",
+      });
+    }
+    if (caminho.startsWith("/admin/dashboard") || caminho.startsWith("/caixa/enriquecer-datas/status")) {
+      return respostaJson({});
+    }
     if (caminho.includes("/dashboard")) return respostaJson({});
     return respostaJson([]);
   });
+}
+
+function montar(caminho = "/") {
+  return render(
+    <MemoryRouter initialEntries={[caminho]}>
+      <App />
+    </MemoryRouter>
+  );
 }
 
 const CLIENTE = { id: 1, nome: "Ana", email: "ana@teste.com", tipo: "cliente", admin: false };
 
 beforeEach(() => {
   localStorage.clear();
-  window.history.pushState({}, "", "/");
 });
 
 afterEach(() => {
@@ -66,7 +84,7 @@ afterEach(() => {
 describe("App (rede de segurança)", () => {
   it("sem sessão mostra o login", async () => {
     vi.stubGlobal("fetch", apiFalsa());
-    render(<App />);
+    montar();
     expect(await screen.findByRole("button", { name: "Entrar" })).toBeInTheDocument();
   });
 
@@ -74,7 +92,7 @@ describe("App (rede de segurança)", () => {
     localStorage.setItem("radar-leilao-token", "tok");
     const fetchFalso = apiFalsa({ usuario: CLIENTE });
     vi.stubGlobal("fetch", fetchFalso);
-    render(<App />);
+    montar();
 
     expect(await screen.findByText("Casa Teste Campinas")).toBeInTheDocument();
     expect(screen.getByText("1 imóveis encontrados")).toBeInTheDocument();
@@ -92,7 +110,7 @@ describe("App (rede de segurança)", () => {
     const fetchFalso = apiFalsa({ usuario: CLIENTE });
     vi.stubGlobal("fetch", fetchFalso);
     const user = userEvent.setup();
-    render(<App />);
+    montar();
 
     await user.click(await screen.findByRole("button", { name: /Ver oportunidade/ }));
 
@@ -111,7 +129,7 @@ describe("App (rede de segurança)", () => {
       detalhe: { ...IMOVEL, na_lista: false, saiu_da_lista_em: "2026-10-29T22:00:00" },
     }));
     const user = userEvent.setup();
-    render(<App />);
+    montar();
 
     await user.click(await screen.findByRole("button", { name: /Ver oportunidade/ }));
 
@@ -119,18 +137,42 @@ describe("App (rede de segurança)", () => {
   });
 
   it("/admin recusa quem não é administrador", async () => {
-    window.history.pushState({}, "", "/admin");
     localStorage.setItem("radar-leilao-token", "tok");
     vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE }));
-    render(<App />);
+    montar("/admin");
 
     expect(await screen.findByText("Acesso permitido apenas para administradores.")).toBeInTheDocument();
+  });
+
+  it("o Voltar do acesso negado regressa à lista sem recarregar a página", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE }));
+    const user = userEvent.setup();
+    montar("/admin");
+
+    await user.click(await screen.findByRole("button", { name: "Voltar" }));
+
+    expect(await screen.findByText("Casa Teste Campinas")).toBeInTheDocument();
+  });
+
+  it("administrador entra no painel pela ligação do cabeçalho e sai de lá para o login", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    vi.stubGlobal("fetch", apiFalsa({ usuario: { ...CLIENTE, tipo: "admin", admin: true } }));
+    const user = userEvent.setup();
+    montar();
+
+    await user.click(await screen.findByRole("link", { name: "Administração" }));
+
+    expect(await screen.findByText("Pedidos de conta de corretor")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: /Sair/ })[0]);
+    expect(await screen.findByRole("button", { name: "Entrar" })).toBeInTheDocument();
+    expect(localStorage.getItem("radar-leilao-token")).toBeNull();
   });
 
   it("sessão inválida volta ao login e apaga o token", async () => {
     localStorage.setItem("radar-leilao-token", "velho");
     vi.stubGlobal("fetch", apiFalsa({ usuario: null }));
-    render(<App />);
+    montar();
 
     expect(await screen.findByRole("button", { name: "Entrar" })).toBeInTheDocument();
     expect(localStorage.getItem("radar-leilao-token")).toBeNull();
@@ -141,7 +183,7 @@ describe("App (rede de segurança)", () => {
     const fetchFalso = apiFalsa({ usuario: CLIENTE, paginas: 3 });
     vi.stubGlobal("fetch", fetchFalso);
     const user = userEvent.setup();
-    render(<App />);
+    montar();
     await screen.findByText("Casa Teste Campinas");
 
     await user.click(screen.getByRole("button", { name: "→" }));
@@ -157,7 +199,7 @@ describe("App (rede de segurança)", () => {
     localStorage.setItem("radar-leilao-token", "tok");
     vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE }));
     const user = userEvent.setup();
-    render(<App />);
+    montar();
 
     await user.click(await screen.findByRole("button", { name: /Comparar oportunidade/ }));
 
@@ -172,7 +214,7 @@ describe("App (rede de segurança)", () => {
     const comFotos = { ...IMOVEL, imagens: ["https://x/a.jpg", "https://x/b.jpg"] };
     vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE, lista: comFotos }));
     const user = userEvent.setup();
-    render(<App />);
+    montar();
 
     await user.click(await screen.findByRole("button", { name: "Abrir fotos de Casa Teste Campinas" }));
 
@@ -185,7 +227,7 @@ describe("App (rede de segurança)", () => {
   it("o cartão mostra o botão de favorito", async () => {
     localStorage.setItem("radar-leilao-token", "tok");
     vi.stubGlobal("fetch", apiFalsa({ usuario: CLIENTE }));
-    render(<App />);
+    montar();
 
     const titulo = await screen.findByText("Casa Teste Campinas");
     const cartao = titulo.closest("article") || titulo.parentElement.parentElement;

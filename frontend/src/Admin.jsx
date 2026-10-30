@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PedidosCorretorAdmin from "./PedidosCorretorAdmin";
 import {
   LIMITE_POR_PEDIDO,
@@ -101,6 +102,7 @@ function SecaoIndicadores({ titulo, legenda, itens }) {
 }
 
 function Admin({ usuario, onLogout }) {
+  const navegar = useNavigate();
   const [dashboard, setDashboard] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [erroDashboard, setErroDashboard] = useState("");
@@ -413,7 +415,7 @@ function Admin({ usuario, onLogout }) {
   }, []);
 
   function voltar() {
-    window.location.href = "/";
+    navegar("/");
   }
 
   async function criarUsuario(e) {
