@@ -9,7 +9,7 @@ from app.schemas.usuario import (
     TIPOS_USUARIO,
 )
 from app.security.password import gerar_hash
-from app.security.auth import usuario_logado, usuario_admin
+from app.security.auth import usuario_admin, usuario_atual
 
 
 router = APIRouter(
@@ -19,31 +19,9 @@ router = APIRouter(
 
 
 @router.get("/me", response_model=UsuarioResponse)
-def meu_usuario(
-    usuario=Depends(usuario_logado),
-    db: Session = Depends(get_db)
-):
-    email = usuario.get("sub")
-
-    if not email:
-        raise HTTPException(
-            status_code=401,
-            detail="Token invalido."
-        )
-
-    usuario_db = (
-        db.query(Usuario)
-        .filter(Usuario.email == email)
-        .first()
-    )
-
-    if not usuario_db:
-        raise HTTPException(
-            status_code=401,
-            detail="Usuario nao encontrado."
-        )
-
-    return usuario_db
+def meu_usuario(usuario: Usuario = Depends(usuario_atual)):
+    # O mesmo caminho de todas as rotas: pelo id do token.
+    return usuario
 
 
 @router.post("", response_model=UsuarioResponse)

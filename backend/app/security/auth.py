@@ -35,12 +35,27 @@ def _decodificar_token(token: str):
         )
 
 
-def _usuario_do_payload(payload, db: Session):
-    email = payload.get("sub")
-    if not email:
-        raise HTTPException(status_code=401, detail="Token inválido.")
+def id_do_payload(payload) -> int | None:
+    """Id do utilizador no token: o campo "id" ou o "sub" numérico (tokens novos)."""
+    for valor in (payload.get("id"), payload.get("sub")):
+        if isinstance(valor, int) or (isinstance(valor, str) and valor.isdigit()):
+            return int(valor)
+    return None
 
-    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+
+def _usuario_do_payload(payload, db: Session):
+    """O utilizador do token, pelo id (mudar o e-mail não termina a sessão).
+
+    Tokens muito antigos só com o e-mail em "sub" continuam a ser aceites.
+    """
+    usuario_id = id_do_payload(payload)
+    if usuario_id is not None:
+        usuario = db.get(Usuario, usuario_id)
+    else:
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token inválido.")
+        usuario = db.query(Usuario).filter(Usuario.email == email).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="Usuário não encontrado.")
     return usuario
@@ -64,7 +79,7 @@ def usuario_opcional(
 
 
 def usuario_e_admin(usuario: Usuario) -> bool:
-    return bool(usuario.admin) or getattr(usuario, "tipo", None) == "admin"
+    return getattr(usuario, "tipo", None) == "admin"
 
 
 def usuario_e_corretor(usuario: Usuario) -> bool:

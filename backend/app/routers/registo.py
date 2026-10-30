@@ -29,7 +29,7 @@ from app.models.usuario import Usuario
 from app.routers.login import LimiteTentativasLogin
 from app.security.auth import usuario_admin, usuario_atual, usuario_e_admin
 from app.security.password import gerar_hash
-from app.security.token import criar_token
+from app.security.token import token_do_usuario
 
 router = APIRouter(tags=["Registo"])
 
@@ -190,7 +190,7 @@ def registar(dados: Registo, db: Session = Depends(get_db)):
     limite_registo.registar_falha("registo")  # conta o registo feito
 
     return {
-        "access_token": criar_token({"sub": usuario.email, "id": usuario.id}),
+        "access_token": token_do_usuario(usuario),
         "token_type": "bearer",
         "usuario": _usuario_resposta(usuario),
         "pedido_corretor": _pedido_resposta(pedido),

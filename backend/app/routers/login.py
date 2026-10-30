@@ -12,7 +12,7 @@ from app.database.database import get_db
 from app.models.usuario import Usuario
 from app.schemas.login import Login
 from app.security.password import verificar_senha
-from app.security.token import criar_token
+from app.security.token import token_do_usuario
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +123,7 @@ def login(dados: Login, db: Session = Depends(get_db)):
 
     limite_login.limpar(chave)
 
-    token = criar_token({
-        "sub": usuario.email,
-        "id": usuario.id
-    })
+    token = token_do_usuario(usuario)
 
     return {
         "access_token": token,
