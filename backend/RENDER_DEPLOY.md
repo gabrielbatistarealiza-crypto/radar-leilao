@@ -13,6 +13,12 @@ Crie um serviço **Web Service** ligado ao repositório e selecione **Docker**. 
 - `DATABASE_URL`: Internal Database URL do banco Render.
 - `SECRET_KEY`: segredo aleatório forte, único para este ambiente.
 - `BROWSER_HEADLESS`: `true` (a imagem já usa esse padrão).
+- Recuperação de senha (fase 4B, e-mail pelo Brevo). Sem estas variáveis o resto funciona, mas o e-mail não sai (fica só um aviso no registo):
+  - `BREVO_API_KEY`: chave da API do Brevo (SMTP & API → API Keys). É segredo: só no painel do Render.
+  - `RADAR_EMAIL_REMETENTE`: e-mail remetente já verificado no Brevo (Senders).
+  - `RADAR_EMAIL_NOME`: nome do remetente (opcional; por omissão "Radar Leilão").
+  - `RADAR_SITE_URL`: endereço do site (ex.: `https://radar-leilao-web.onrender.com`), usado na ligação do e-mail.
+  - O site estático precisa da regra Rewrite `/*` → `/index.html` para abrir `/redefinir-senha` diretamente.
 - `RADAR_DISABLE_BACKGROUND_JOBS`: defina como `1` para desativar no lifespan as três rotinas em segundo plano: atualização Caixa das 03:00, processamento automático da fila de fotos e notificações. Remova a variável ou use outro valor para reativar as rotinas. Isso exige reinício/redeploy do serviço; nenhuma configuração de produção é alterada por este repositório.
 
 O comando de inicialização aplica primeiro as migrações (`python -m app.migrar`) e só depois inicia Uvicorn com um worker e usa a porta `PORT` fornecida pelo Render. Configure o health check path como `/health`.

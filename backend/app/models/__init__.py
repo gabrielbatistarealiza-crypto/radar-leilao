@@ -16,3 +16,4 @@ from app.models.caixa_pedidos_dia import CaixaPedidosDia
 from app.models.notificacao import Notificacao
 from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
 from app.models.pedido_corretor import PedidoCorretor
+from app.models.recuperacao_senha import RecuperacaoSenha

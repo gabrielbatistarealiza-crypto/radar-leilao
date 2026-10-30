@@ -1,11 +1,13 @@
 import { useState } from "react";
 
 import Registo from "./Registo";
+import { EsqueciSenha } from "./RecuperarSenha";
 
 import { API_URL } from "./api";
 
 function Login({ onLogin }) {
   const [criandoConta, setCriandoConta] = useState(false);
+  const [esqueceuSenha, setEsqueceuSenha] = useState(false);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
@@ -72,6 +74,10 @@ function Login({ onLogin }) {
     );
   }
 
+  if (esqueceuSenha) {
+    return <EsqueciSenha emailInicial={email} onVoltar={() => setEsqueceuSenha(false)} />;
+  }
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -110,6 +116,10 @@ function Login({ onLogin }) {
 
         <button type="button" className="login-alternar" onClick={() => setCriandoConta(true)}>
           Não tem conta? Criar conta
+        </button>
+
+        <button type="button" className="login-alternar" onClick={() => setEsqueceuSenha(true)}>
+          Esqueci a senha
         </button>
       </div>
     </div>
