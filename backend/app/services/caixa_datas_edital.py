@@ -228,7 +228,8 @@ def _normalizar_numero(numero: str) -> str:
 def interpretar_texto_edital(texto: str) -> Edital | None:
     """Datas de sessão do 1.º e 2.º leilão e os números do Anexo II; None se faltar algo."""
     def data(ordem):
-        m = re.search(rf"Sess[ãa]o do {ordem}\S* Leil[ãa]o\s+(\d{{2}})/(\d{{2}})/(\d{{4}})", texto)
+        # "Sessão do 1º Leilão 20/10/2026" (edital 0049) ou "... Leilão: 30/11/2026" (edital 0052).
+        m = re.search(rf"Sess[ãa]o do {ordem}\S* Leil[ãa]o\s*:?\s+(\d{{2}})/(\d{{2}})/(\d{{4}})", texto)
         if not m:
             return None
         try:
@@ -386,6 +387,50 @@ def _ler_e_aplicar_edital(db, imovel, link: str, pedir, resultado: dict, datas_p
     return resultado
 
 
+_RE_NOME_EDITAL = re.compile(r"^(EL[0-9A-Z]+)", re.IGNORECASE)
+
+
+def link_do_ficheiro_edital(nome_ficheiro: str) -> str | None:
+    """Link do edital a partir do nome do PDF guardado (ex.: EL00520226CPARE.PDF ou el00520226cpare (1).pdf).
+
+    Tem de ser igual ao que as páginas mostram: é por ele que o worker sabe que
+    o edital já foi lido.
+    """
+    m = _RE_NOME_EDITAL.match(nome_ficheiro.strip())
+    return f"https://{DOMINIO_CAIXA}/editais/{m.group(1).upper()}.PDF" if m else None
+
+
+def aplicar_edital_local(db, corpo: bytes, link: str, gravar: bool = False) -> dict:
+    """Aplica um edital já descarregado (PDF no disco), sem contactar a CAIXA.
+
+    Mesmas verificações do worker (_aplicar_edital): preenche quem não tem datas,
+    renova datas já passadas se o edital for por acontecer e pára (nada gravado)
+    se houver datas diferentes ainda por acontecer. Sem `gravar` faz rollback.
+    """
+    edital = ler_edital(corpo)
+    if edital is None:
+        return {"recusado": "EDITAL_NAO_INTERPRETAVEL"}
+    resumo = {"link": link, "data_primeiro_leilao": edital.data_primeiro_leilao.isoformat(),
+              "data_segundo_leilao": edital.data_segundo_leilao.isoformat(),
+              "numeros_no_edital": len(edital.numeros), "sem_venda_no_edital": len(edital.numeros_sem_venda)}
+    if edital.data_segundo_leilao < _hoje():
+        # Datas já passadas seriam mostradas como se fossem o próximo leilão.
+        return {**resumo, "recusado": "EDITAL_JA_PASSOU"}
+    membros = [
+        i for i in db.query(Imovel).filter(Imovel.fonte.ilike("%caixa%"), Imovel.url.isnot(None)).all()
+        if numero_do_imovel(i.url) in edital.numeros | edital.numeros_sem_venda
+    ]
+    if not membros:
+        db.rollback()
+        return {**resumo, "recusado": "NENHUM_IMOVEL_DA_BASE_NO_EDITAL"}
+    aplicado = _aplicar_edital(db, edital, link, min(membros, key=lambda i: i.id))
+    if "paragem" in aplicado or not gravar:
+        db.rollback()
+    else:
+        db.commit()
+    return {**resumo, **aplicado, "gravado": gravar and "paragem" not in aplicado}
+
+
 def processar_edital_pendente(db, imovel_id: int, link: str, pedir=None, antes_de_pedir=None) -> dict:
     """Só o edital que ficou adiado numa volta anterior (1 GET, nunca a página).
 
@@ -414,8 +459,36 @@ def processar_edital_pendente(db, imovel_id: int, link: str, pedir=None, antes_d
     return _ler_e_aplicar_edital(db, imovel, link, pedir_, resultado, datas)
 
 
-def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None) -> dict:
+def proximo_de_outra_uf(db, excluir_ufs) -> Imovel | None:
+    """Imóvel pendente mais antigo do estado com MAIS pendentes, fora de `excluir_ufs`.
+
+    Os editais da CAIXA são regionais: ler uma página por estado (começando pelos
+    que têm mais pendentes) encontra depressa os links dos editais de cada região.
+    """
+    from sqlalchemy import func
+
+    excluir = {uf.upper() for uf in excluir_ufs if uf}
+    contagens = (
+        db.query(Imovel.estado, func.count(Imovel.id))
+        .filter(filtro_pendentes(), Imovel.estado.isnot(None))
+        .group_by(Imovel.estado)
+        .all()
+    )
+    candidatas = sorted(((n, uf) for uf, n in contagens if uf.upper() not in excluir),
+                        key=lambda par: (-par[0], par[1]))
+    if not candidatas:
+        return None
+    uf = candidatas[0][1]
+    return (db.query(Imovel).filter(filtro_pendentes(), Imovel.estado == uf)
+            .order_by(Imovel.id.asc()).first())
+
+
+def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir=None,
+                    excluir_ufs=None) -> dict:
     """Um imóvel (+ o seu edital, se ainda não lido). Não trata do estado.
+
+    `excluir_ufs` (conjunto, mesmo vazio) troca a ordem do cursor por "um imóvel
+    do estado com mais pendentes ainda não visto" (proximo_de_outra_uf).
 
     `antes_de_pedir(imovel_id)` é chamado imediatamente antes de CADA GET (o
     worker usa-o para gravar, com commit, a marca de pedido em curso).
@@ -423,12 +496,17 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
     "paragem" com o motivo; nesse caso o chamador grava a paragem manual.
     """
     pedir_real = pedir or pedir_caixa
-    consulta = db.query(Imovel).filter(filtro_pendentes())
-    if estado.cursor_id is not None:
-        consulta = consulta.filter(Imovel.id > estado.cursor_id)
-    imovel = consulta.order_by(Imovel.id.asc()).first()
-    if imovel is None:
-        return {"pedidos": 0, "processados": 0, "concluido": True}
+    if excluir_ufs is not None:
+        imovel = proximo_de_outra_uf(db, excluir_ufs)
+        if imovel is None:
+            return {"pedidos": 0, "processados": 0, "ufs_esgotadas": True}
+    else:
+        consulta = db.query(Imovel).filter(filtro_pendentes())
+        if estado.cursor_id is not None:
+            consulta = consulta.filter(Imovel.id > estado.cursor_id)
+        imovel = consulta.order_by(Imovel.id.asc()).first()
+        if imovel is None:
+            return {"pedidos": 0, "processados": 0, "concluido": True}
     imovel_id = imovel.id
 
     def pedir(url, tipo):
@@ -436,7 +514,8 @@ def processar_passo(db, estado, pedir=None, max_pedidos: int = 2, antes_de_pedir
             antes_de_pedir(imovel_id)
         return pedir_real(url, tipo)
 
-    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel_id, "atualizados": 0}
+    resultado = {"pedidos": 1, "processados": 1, "imovel_id": imovel_id, "atualizados": 0,
+                 "uf": imovel.estado}
     resposta = pedir(imovel.url, "pagina")
     if not resposta.ok:
         resultado.update(paragem=resposta.veredicto, destino=resposta.destino)

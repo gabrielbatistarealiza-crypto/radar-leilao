@@ -30,6 +30,8 @@ Rode a partir da pasta backend/ (exemplos):
       lista das 27 UFs (60 s entre UFs) e até 10 pedidos de datas (600 s entre voltas)
   python scripts/rotina_caixa.py --base producao --importar-descarregados --confirmo-gravar
       importa os 27 CSV já descarregados (menos de 12 h), sem contactar a CAIXA
+  python scripts/rotina_caixa.py --base producao --aplicar-edital editais/EL00520226CPARE.PDF --confirmo-gravar
+      aplica as datas de um edital descarregado no browser, sem contactar a CAIXA
 
 Código de saída: 0 terminou normalmente; 2 parou (paragem manual, espera,
 outra consulta em curso ou limite diário); outros valores = recusado/erro.
@@ -173,6 +175,34 @@ def importar_descarregados(db, args, onde: str) -> int:
     return 0
 
 
+def aplicar_edital(db, args, onde: str) -> int:
+    """Aplica um edital guardado neste computador (sem contactar a CAIXA). Ensaio sem --confirmo-gravar."""
+    from app.services.caixa_datas_edital import aplicar_edital_local, link_do_ficheiro_edital
+
+    caminho = Path(args.aplicar_edital)
+    if not caminho.is_file():
+        print(f"Recusado: ficheiro não encontrado: {caminho}")
+        return 1
+    link = args.link_edital or link_do_ficheiro_edital(caminho.name)
+    if not link or "/editais/" not in link:
+        print("Recusado: não sei o link deste edital. Indique --link-edital com o link que a página mostra.")
+        return 1
+    r = aplicar_edital_local(db, caminho.read_bytes(), link, gravar=args.confirmo_gravar)
+    print(json.dumps({"base": onde, "ficheiro": caminho.name, **r}, ensure_ascii=False, default=str))
+    if r.get("recusado") or r.get("paragem"):
+        print("Nada foi gravado.")
+        return 1 if r.get("recusado") else SAIDA_PAROU
+    if not args.confirmo_gravar:
+        print("ENSAIO: nada foi gravado nem pedido à CAIXA. Para gravar: --confirmo-gravar")
+    else:
+        momento = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        registo = Path(args.registo or f"registo_rotina_caixa_{args.base}_{momento}_{os.getpid()}.jsonl")
+        with open(registo, "x", encoding="utf-8") as f:
+            linha_registo(f, "edital_local", {"base": onde, "ficheiro": caminho.name, "pedidos_caixa": 0, **r})
+        print(f"Fim. Registo: {registo}")
+    return 0
+
+
 def linha_registo(f, etapa: str, dados: dict) -> dict:
     linha = {"etapa": etapa, "momento_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), **dados}
     f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
@@ -208,16 +238,30 @@ def main() -> int:
     p.add_argument("--importar-descarregados", action="store_true",
                    help="importa os 27 CSV já descarregados neste computador, SEM contactar a CAIXA "
                         "(todos têm de existir, ser listas válidas e ter menos de 12 h)")
+    p.add_argument("--aplicar-edital", metavar="PDF", default=None,
+                   help="aplica as datas de um edital já descarregado (PDF neste computador), "
+                        "SEM contactar a CAIXA")
+    p.add_argument("--link-edital", default=None,
+                   help="com --aplicar-edital: link do edital, se o nome do ficheiro não for EL....PDF")
+    p.add_argument("--uma-por-uf", action="store_true",
+                   help="na recolha de datas, lê um imóvel de cada estado (os com mais pendentes "
+                        "primeiro) para descobrir depressa os editais regionais")
+    p.add_argument("--pedir-editais", action="store_true",
+                   help="na recolha de datas, pede também o PDF do edital na volta seguinte "
+                        "(desligado: a CAIXA redireciona os PDFs; os links ficam listados no fim)")
     p.add_argument("--confirmo-gravar", action="store_true",
-                   help="com --importar-descarregados: grava na base (sem isto é só ensaio)")
+                   help="com --importar-descarregados ou --aplicar-edital: grava na base (sem isto é só ensaio)")
     args = p.parse_args()
     if args.lista_com_browser:
         args.lista = True
 
-    if args.importar_descarregados and (args.lista or args.max_pedidos_datas):
-        sys.exit("Recusado: --importar-descarregados não se junta a --lista nem a --max-pedidos-datas.")
-    if not args.lista and args.max_pedidos_datas == 0 and not args.importar_descarregados:
-        sys.exit("Recusado: indique --lista, --max-pedidos-datas N ou --importar-descarregados.")
+    sem_caixa = [nome for nome, ligado in (("--importar-descarregados", args.importar_descarregados),
+                                           ("--aplicar-edital", bool(args.aplicar_edital))) if ligado]
+    if len(sem_caixa) > 1 or (sem_caixa and (args.lista or args.max_pedidos_datas)):
+        sys.exit(f"Recusado: {' e '.join(sem_caixa)} não se junta(m) a outras etapas.")
+    if not args.lista and args.max_pedidos_datas == 0 and not sem_caixa:
+        sys.exit("Recusado: indique --lista, --max-pedidos-datas N, --importar-descarregados "
+                 "ou --aplicar-edital PDF.")
     if not 1 <= args.max_ufs <= MAX_UFS:
         sys.exit(f"Recusado: --max-ufs tem de estar entre 1 e {MAX_UFS}.")
     if not 0 <= args.max_pedidos_datas <= MAX_PEDIDOS_DATAS:
@@ -276,6 +320,8 @@ def main() -> int:
 
         if args.importar_descarregados:
             return importar_descarregados(db, args, onde)
+        if args.aplicar_edital:
+            return aplicar_edital(db, args, onde)
 
         if not args.confirmo_contactar_caixa:
             from sqlalchemy import inspect
@@ -328,18 +374,30 @@ def main() -> int:
             # Um pedido por volta: a página numa volta e o seu edital na seguinte,
             # nunca dois pedidos seguidos (a 30/10/2026 o edital pedido logo a seguir
             # à página foi redirecionado pela proteção da CAIXA).
+            # Por omissão os PDFs dos editais NÃO são pedidos: a 30/10/2026 a CAIXA
+            # redirecionou-os mesmo isolados, 10 min depois da página. Os links ficam
+            # listados no fim para descarregar à mão e aplicar com --aplicar-edital.
             edital_pendente = None
+            editais_por_descarregar: list[str] = []
+            ufs_vistas: set[str] | None = set() if args.uma_por_uf else None
             while not parou and pedidos < args.max_pedidos_datas:
                 if volta:
                     time.sleep(args.intervalo_datas)
                 volta += 1
                 antes = len(guardados)
-                r = executar_lote_datas(db, max_pedidos=1, pedir=pedir, edital_pendente=edital_pendente)
+                r = executar_lote_datas(db, max_pedidos=1, pedir=pedir, edital_pendente=edital_pendente,
+                                        excluir_ufs=None if ufs_vistas is None else set(ufs_vistas))
+                if ufs_vistas is not None and r.get("uf"):
+                    ufs_vistas.add(r["uf"])
                 edital_pendente = None
                 if r.get("estado_edital") == "ADIADO_LIMITE_DE_PEDIDOS" and r.get("edital"):
-                    edital_pendente = {"imovel_id": r["imovel_id"], "link": r["edital"]}
+                    if args.pedir_editais:
+                        edital_pendente = {"imovel_id": r["imovel_id"], "link": r["edital"]}
+                    elif r["edital"] not in editais_por_descarregar:
+                        editais_por_descarregar.append(r["edital"])
                 pedidos += r.get("pedidos", 0)
-                chaves = ("imovel_id", "pedidos", "atualizados", "datas_da_pagina", "fotos", "fotos_novas",
+                chaves = ("imovel_id", "uf", "ufs_esgotadas", "pedidos", "atualizados", "datas_da_pagina",
+                          "fotos", "fotos_novas",
                           "estado_edital", "edital", "so_edital", "preenchidos_pelo_edital",
                           "renovados_pelo_edital", "membros_na_base", "paragem", "concluido",
                           "aguardando_bloqueio", "ocupado", "limite_diario_atingido")
@@ -361,12 +419,18 @@ def main() -> int:
                                                  "paginas_vazias_seguidas": vazias_seguidas,
                                                  "pasta_paginas": str(pasta_paginas)})
                     parou = True
-                if r.get("concluido") and not edital_pendente:
+                if (r.get("concluido") or r.get("ufs_esgotadas")) and not edital_pendente:
                     break
             if edital_pendente and not parou:
                 # Acabou a quota desta execução com um edital por ler: fica registado;
                 # a próxima execução volta a chegar a ele pelos imóveis ainda sem datas.
                 linha_registo(f, "edital_por_ler", edital_pendente)
+            if editais_por_descarregar:
+                linha_registo(f, "editais_por_descarregar", {"links": editais_por_descarregar})
+                print("Descarregue estes editais no browser e aplique cada um com "
+                      "--aplicar-edital <ficheiro.pdf>:")
+                for link in editais_por_descarregar:
+                    print(f"  {link}")
         print(f"Fim. Registo: {registo}")
         return SAIDA_PAROU if parou else 0
     finally:

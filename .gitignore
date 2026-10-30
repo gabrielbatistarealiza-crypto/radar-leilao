@@ -30,6 +30,9 @@ build/
 *.dump
 *.backup
 backups/
+# Editais da CAIXA descarregados à mão (para --aplicar-edital)
+Editais/
+editais/
 
 # =========================
 # Logs
