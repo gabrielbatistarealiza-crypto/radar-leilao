@@ -173,7 +173,7 @@ def registar(dados: Registo, db: Session = Depends(get_db)):
     # Sempre cliente: o tipo nunca vem do pedido.
     usuario = Usuario(
         nome=dados.nome, email=email, senha=gerar_hash(dados.senha),
-        tipo="cliente", admin=False,
+        tipo="cliente",
     )
     db.add(usuario)
     try:
