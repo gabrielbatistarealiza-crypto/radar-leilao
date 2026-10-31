@@ -45,6 +45,11 @@ export default function Cabecalho({
               <a href="#consultoria">Dúvidas sobre leilão</a>
             </nav>
           )}
+          {papel === "admin" && (
+            <nav className="cliente-navigation" aria-label="Navegação do administrador">
+              <a href="#alertas">Alertas</a>
+            </nav>
+          )}
           {ehAdministrador && (
             <Link className="header-admin-link" to="/admin">
               Administração
