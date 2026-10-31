@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bell, Trash2, CalendarClock, MapPin, Pencil, X } from "lucide-react";
 
 import { API_URL } from "./api";
+import ResumoPorEmail from "./componentes/ResumoPorEmail";
 
 function moeda(valor) {
   if (valor == null) return "Preço não informado";
@@ -107,6 +108,7 @@ export default function Alertas({ token }) {
       <div className="alertas-heading">
         <div><span className="section-kicker">ACOMPANHAMENTO</span><h2><Bell size={22} /> Alertas de oportunidades</h2><p>Guarde critérios e veja imóveis atuais que combinam com eles, incluindo leilões próximos.</p></div>
       </div>
+      <ResumoPorEmail token={token} />
       {erro && <p className="alertas-erro" role="alert">{erro}</p>}
       <form className="alertas-form" onSubmit={salvar}>
         <label>Nome do alerta<input required maxLength="120" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex.: Apartamentos em SP" /></label>

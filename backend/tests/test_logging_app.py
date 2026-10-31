@@ -69,3 +69,32 @@ def test_lifespan_regista_que_as_rotinas_estao_desativadas(saida_do_logger_da_ap
         pass
 
     assert "Rotinas automáticas em segundo plano desativadas por configuração." in buffer.getvalue()
+
+
+def test_radar_alertas_liga_so_os_alertas(saida_do_logger_da_app, monkeypatch):
+    """Com as rotinas da Caixa desligadas, RADAR_ALERTAS=1 corre só a rotina de notificações."""
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    main, buffer = saida_do_logger_da_app
+    monkeypatch.setenv("RADAR_ALERTAS", "1")
+    monkeypatch.delenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS", raising=False)
+    chamadas = []
+
+    async def notificacoes_falsa():
+        chamadas.append("notificacoes")
+        await asyncio.sleep(3600)
+
+    async def proibida():
+        raise AssertionError("rotina da Caixa não pode arrancar")
+
+    monkeypatch.setattr(main, "_rotina_notificacoes", notificacoes_falsa)
+    for nome in ("_rotina_atualizacao_caixa", "_rotina_enriquecimento_datas_caixa", "_rotina_fila_fotos_caixa"):
+        monkeypatch.setattr(main, nome, proibida)
+
+    with TestClient(main.app):
+        pass
+
+    assert chamadas == ["notificacoes"]
+    assert "Alertas ligados (RADAR_ALERTAS=1)" in buffer.getvalue()

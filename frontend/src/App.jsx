@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Login from "./Login";
 import { RedefinirSenha } from "./RecuperarSenha";
+import DesligarAlertas from "./DesligarAlertas";
 import Admin from "./Admin";
 import MinhasOportunidades from "./MinhasOportunidades";
 import Corretor from "./Corretor";
@@ -672,6 +673,16 @@ function App() {
     return (
       <RedefinirSenha
         codigo={new URLSearchParams(location.search).get("codigo") || ""}
+        onConcluido={() => navegar("/", { replace: true })}
+      />
+    );
+  }
+
+  // A ligação "deixar de receber" do resumo de alertas também abre sem sessão.
+  if (location.pathname === "/desligar-alertas") {
+    return (
+      <DesligarAlertas
+        token={new URLSearchParams(location.search).get("token") || ""}
         onConcluido={() => navegar("/", { replace: true })}
       />
     );

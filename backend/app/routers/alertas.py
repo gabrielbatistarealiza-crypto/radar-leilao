@@ -15,6 +15,8 @@ from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
 from app.models.usuario import Usuario
 from app.routers.simulacoes_rentabilidade import CUSTOS, montar_resposta
 from app.security.auth import exigir_acesso_oportunidade, usuario_atual, usuario_e_admin
+from app.services import email as servico_email
+from app.services import resumo_alertas
 
 router = APIRouter(prefix="/alertas", tags=["Alertas de oportunidades"])
 
@@ -83,6 +85,42 @@ def criar_alerta(dados: CriterioAlertaInput, db: Session = Depends(get_db), usua
     db.commit()
     db.refresh(alerta)
     return alerta
+
+
+# --------------------------------------------------- resumo diário por e-mail
+# (antes de "/{alerta_id}" para "email" não ser lido como id)
+
+class PreferenciaEmail(BaseModel):
+    ativo: bool
+
+
+class DesligarPorLigacao(BaseModel):
+    token: str = Field(min_length=10, max_length=500)
+
+
+@router.get("/email")
+def ver_preferencia_email(usuario: Usuario = Depends(usuario_atual)):
+    return {"ativo": bool(usuario.alertas_por_email), "envio_configurado": servico_email.email_configurado()}
+
+
+@router.put("/email")
+def mudar_preferencia_email(dados: PreferenciaEmail, db: Session = Depends(get_db),
+                            usuario: Usuario = Depends(usuario_atual)):
+    usuario.alertas_por_email = dados.ativo
+    db.commit()
+    return {"ativo": usuario.alertas_por_email, "envio_configurado": servico_email.email_configurado()}
+
+
+@router.post("/email/desligar")
+def desligar_pela_ligacao(dados: DesligarPorLigacao, db: Session = Depends(get_db)):
+    """Ligação "deixar de receber" do e-mail: funciona sem sessão iniciada."""
+    usuario_id = resumo_alertas.usuario_do_token_desligar(dados.token)
+    usuario = db.get(Usuario, usuario_id) if usuario_id else None
+    if usuario is None:
+        raise HTTPException(status_code=400, detail="Ligação inválida.")
+    usuario.alertas_por_email = False
+    db.commit()
+    return {"mensagem": "Deixou de receber os resumos dos alertas por e-mail. Pode voltar a ligá-los nos Alertas do site."}
 
 
 @router.put("/{alerta_id}", response_model=CriterioAlertaResponse)
