@@ -735,7 +735,7 @@ function App() {
           sair={sair}
         />
 
-        {(papel === "cliente" || papel === "corretor") && <Alertas token={token} />}
+        {(papel === "cliente" || papel === "corretor" || papel === "admin") && <Alertas token={token} />}
 
         {papel === "cliente" && (
           <>

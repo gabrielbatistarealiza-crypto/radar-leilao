@@ -169,6 +169,15 @@ describe("App (rede de segurança)", () => {
     expect(localStorage.getItem("radar-leilao-token")).toBeNull();
   });
 
+  it("administrador também vê os Alertas (link no cabeçalho e secção)", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    vi.stubGlobal("fetch", apiFalsa({ usuario: { ...CLIENTE, tipo: "admin", admin: true } }));
+    montar();
+
+    expect(await screen.findByRole("link", { name: "Alertas" })).toHaveAttribute("href", "#alertas");
+    expect(await screen.findByRole("heading", { name: /Alertas de oportunidades/ })).toBeInTheDocument();
+  });
+
   it("login recusado por formato (422) mostra uma mensagem legível", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/login")) {
