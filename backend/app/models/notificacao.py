@@ -20,3 +20,5 @@ class Notificacao(Base):
     mensagem = Column(Text, nullable=False)
     lida = Column(Boolean, nullable=False, default=False, index=True)
     criada_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Quando entrou num resumo por e-mail (ou foi dada como vista sem envio).
+    enviada_por_email_em = Column(DateTime, nullable=True)

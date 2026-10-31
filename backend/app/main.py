@@ -46,6 +46,7 @@ from app.models.notificacao import Notificacao
 from app.routers.alertas import router as alertas_router
 from app.routers.consultoria import criar_router as criar_router_consultoria
 from app.security.auth import usuario_atual
+from app.services.resumo_alertas import enviar_resumos
 from app.services.notificacoes import (
     gerar_notificacoes,
     libertar_lock_scheduler_notificacoes,
@@ -274,7 +275,16 @@ async def _rotina_fila_fotos_caixa():
 def _gerar_notificacoes_agendadas():
     db = SessionLocal()
     try:
-        return gerar_notificacoes(db)
+        quantidade = gerar_notificacoes(db)
+        try:
+            # Uma falha nos e-mails não impede as notificações no site.
+            resumos = enviar_resumos(db)
+            if resumos.get("enviados") or resumos.get("falhados"):
+                logger.info("Resumos de alertas por e-mail: %s", resumos)
+        except Exception:
+            db.rollback()
+            logger.exception("Falha ao enviar os resumos de alertas por e-mail")
+        return quantidade
     finally:
         db.close()
 
@@ -317,6 +327,19 @@ async def lifespan(app: FastAPI):
         or os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") == "1"
     ):
         logger.info("Rotinas automáticas em segundo plano desativadas por configuração.")
+        # Os alertas (notificações e resumo por e-mail) não contactam a Caixa:
+        # RADAR_ALERTAS=1 liga-os sozinhos, com as rotinas da Caixa desligadas.
+        if (os.getenv("RADAR_ALERTAS") == "1"
+                and os.getenv("RADAR_TEST_DISABLE_BACKGROUND_JOBS") != "1"):
+            logger.info("Alertas ligados (RADAR_ALERTAS=1): notificações e resumo por e-mail.")
+            tarefa = asyncio.create_task(_rotina_notificacoes())
+            try:
+                yield
+            finally:
+                tarefa.cancel()
+                with suppress(asyncio.CancelledError):
+                    await tarefa
+            return
         yield
         return
 

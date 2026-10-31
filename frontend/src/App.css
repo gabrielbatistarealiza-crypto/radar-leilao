@@ -96,6 +96,12 @@
 .alertas-prazo { color: #b54708 !important; font-weight: 700; }
 .alerta-imovel a { display: inline-block; margin-top: 5px; color: #175cd3; font-size: 13px; font-weight: 600; }
 .alertas-erro { padding: 10px 12px; border-radius: 8px; color: #b42318; background: #fef3f2; }
+/* Interruptor do resumo diário por e-mail. */
+.resumo-email { display: grid; gap: 4px; margin: 0 0 16px; padding: 12px 14px; border: 1px solid #dbe3ef; border-radius: 10px; background: #f8fafc; }
+.resumo-email label { display: flex; align-items: center; gap: 8px; color: #172033; font-size: 14px; font-weight: 600; cursor: pointer; }
+.resumo-email input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #173f70; }
+.resumo-email small { color: #687386; font-size: 12px; }
+.resumo-email .resumo-email-erro { color: #b42318; }
 @media (max-width: 850px) { .alertas-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .alertas-grid { grid-template-columns: 1fr; } }
 @media (max-width: 500px) { .alertas-form { grid-template-columns: 1fr; } }
 

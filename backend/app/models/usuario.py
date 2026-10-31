@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, true
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.database.database import Base
@@ -16,6 +16,10 @@ class Usuario(Base):
 
     # O papel do utilizador vive SÓ em `tipo` (cliente, corretor ou admin).
     tipo = Column(String(20), nullable=False, default="cliente")
+
+    # Resumo diário dos alertas por e-mail (pode ser desligado pela ligação do e-mail).
+    alertas_por_email = Column(Boolean, nullable=False, default=True, server_default=true())
+    ultimo_resumo_email_em = Column(DateTime, nullable=True)
 
     @hybrid_property
     def admin(self) -> bool:
