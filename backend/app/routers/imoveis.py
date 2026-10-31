@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 
-from app.models.imovel import Imovel, ImovelEvento
+from app.models.imovel import Imovel, ImovelEvento, ImovelImagem
 
 from app.schemas.imovel import ImovelCreate, ImovelEvento as ImovelEventoSchema, ImovelResponse, ImoveisPaginados
 
@@ -1378,7 +1378,58 @@ def processar_fila_fotos_caixa(
     return resultado
 
 
-
+# Vitrine do ecrã de entrada (sem sessão): poucos campos, só o necessário.
+# Tem de ficar antes de "/{imovel_id}" para "destaques" não ser lido como id.
+@router.get("/destaques")
+def imoveis_em_destaque(
+    limite: int = Query(6, ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    """Imóveis na lista, com foto, leilão por acontecer e maior desconto; uma cidade cada."""
+    hoje = date.today()
+    desconto = (Imovel.valor_avaliacao - Imovel.valor_lance) / Imovel.valor_avaliacao * 100
+    tem_foto = or_(
+        Imovel.url_imagem.isnot(None),
+        db.query(ImovelImagem.id).filter(ImovelImagem.imovel_id == Imovel.id).exists(),
+    )
+    candidatos = (
+        db.query(Imovel)
+        .filter(
+            Imovel.na_lista.is_(True),
+            Imovel.valor_avaliacao > 0,
+            Imovel.valor_lance > 0,
+            desconto > 0,
+            or_(Imovel.data_primeiro_leilao >= hoje, Imovel.data_segundo_leilao >= hoje),
+            tem_foto,
+        )
+        .order_by(desconto.desc(), Imovel.id)
+        .limit(limite * 15)
+        .all()
+    )
+    escolhidos, cidades = [], set()
+    for imovel in candidatos:  # uma por cidade, para a vitrine não ficar só de um sítio
+        cidade = (imovel.cidade or "").strip().upper()
+        if cidade in cidades:
+            continue
+        cidades.add(cidade)
+        escolhidos.append(imovel)
+        if len(escolhidos) == limite:
+            break
+    proximas = lambda i: [d for d in (i.data_primeiro_leilao, i.data_segundo_leilao) if d and d >= hoje]  # noqa: E731
+    return [
+        {
+            "id": i.id,
+            "tipo": i.tipo,
+            "cidade": i.cidade,
+            "estado": i.estado,
+            "foto": (i.imagens or [None])[0] or i.url_imagem,
+            "valor_avaliacao": i.valor_avaliacao,
+            "valor_lance": i.valor_lance,
+            "desconto": round(i.desconto_atual or 0, 1),
+            "proximo_leilao": min(proximas(i), default=None),
+        }
+        for i in escolhidos
+    ]
 
 
 @router.get("/{imovel_id}/historico", response_model=list[ImovelEventoSchema])
