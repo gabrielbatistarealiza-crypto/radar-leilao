@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import Registo from "./Registo";
 import { EsqueciSenha } from "./RecuperarSenha";
+import VitrineDestaques from "./componentes/VitrineDestaques";
 
 import { API_URL } from "./api";
 
@@ -12,6 +13,15 @@ function Login({ onLogin }) {
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const campoEmail = useRef(null);
+
+  // Um imóvel da vitrine: os detalhes pedem conta.
+  const escolherDaVitrine = () => {
+    setAviso("Entre ou crie uma conta grátis para ver a análise completa deste imóvel.");
+    campoEmail.current?.focus();
+    campoEmail.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  };
 
   const entrar = async (e) => {
     e.preventDefault();
@@ -79,15 +89,19 @@ function Login({ onLogin }) {
   }
 
   return (
-    <div className="login-page">
+    <div className="login-page login-com-vitrine">
       <div className="login-card">
         <h1>Radar Leilão</h1>
+        <p className="login-slogan">Imóveis da Caixa abaixo da avaliação, com datas e descontos atualizados.</p>
         <p>Entre na sua conta</p>
+
+        {aviso && <div className="login-ok" role="status">{aviso}</div>}
 
         <form onSubmit={entrar}>
           <label>
             E-mail
             <input
+              ref={campoEmail}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -122,6 +136,8 @@ function Login({ onLogin }) {
           Esqueci a senha
         </button>
       </div>
+
+      <VitrineDestaques onEscolher={escolherDaVitrine} />
     </div>
   );
 }

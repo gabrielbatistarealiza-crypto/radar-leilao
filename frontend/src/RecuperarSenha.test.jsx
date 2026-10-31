@@ -30,9 +30,10 @@ describe("Esqueci a senha", () => {
     await user.click(screen.getByRole("button", { name: "Enviar ligação" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(PEDIDO_OK);
-    const [url, opcoes] = fetch.mock.calls[0];
-    expect(url).toMatch(/\/senha\/esquecida$/);
-    expect(JSON.parse(opcoes.body)).toEqual({ email: "ana@teste.com" });
+    // O ecrã de entrada também pede a vitrine; procura-se o pedido da senha.
+    const pedido = fetch.mock.calls.find(([url]) => /\/senha\/esquecida$/.test(url));
+    expect(pedido).toBeTruthy();
+    expect(JSON.parse(pedido[1].body)).toEqual({ email: "ana@teste.com" });
 
     await user.click(screen.getByRole("button", { name: "Voltar a entrar" }));
     expect(screen.getByRole("button", { name: "Entrar" })).toBeInTheDocument();
