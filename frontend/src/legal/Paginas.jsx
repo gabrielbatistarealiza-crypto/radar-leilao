@@ -1,7 +1,9 @@
 // Política de Privacidade e Termos de Uso (abrem sem sessão: /privacidade e /termos).
 // Versão inicial, escrita a partir do que o site guarda de facto; deve ser revista
 // por um advogado antes do lançamento ao público.
-import { ATUALIZADO_EM, EMAIL_CONTATO, RESPONSAVEL } from "./dados";
+import { ATUALIZADO_EM, CNPJ, EMAIL_CONTATO, RESPONSAVEL } from "./dados";
+
+const identificacao = CNPJ ? `${RESPONSAVEL}, CNPJ ${CNPJ}` : RESPONSAVEL;
 
 function Pagina({ titulo, children, onVoltar }) {
   return (
@@ -36,7 +38,7 @@ export function PoliticaPrivacidade({ onVoltar }) {
 
       <h2>1. Quem é o responsável</h2>
       <p>
-        O controlador dos dados é {RESPONSAVEL}, pessoa física, responsável pelo Radar Leilão.
+        O controlador dos dados é {identificacao}, pessoa jurídica responsável pelo Radar Leilão.
         Para qualquer assunto sobre os seus dados, escreva para {contato}.
       </p>
 
@@ -194,7 +196,7 @@ export function TermosUso({ onVoltar }) {
 
       <h2>9. Propriedade intelectual</h2>
       <p>
-        O site, o seu código, marca e textos pertencem ao responsável pelo Radar Leilão. As informações
+        O site, o seu código, marca e textos pertencem a {RESPONSAVEL}. As informações
         dos imóveis e as fotos pertencem às respectivas fontes (como a Caixa).
       </p>
 
@@ -218,7 +220,7 @@ export function TermosUso({ onVoltar }) {
       </p>
 
       <h2>13. Contato</h2>
-      <p>Responsável: {RESPONSAVEL}. Dúvidas sobre estes termos: {contato}.</p>
+      <p>Responsável: {identificacao}. Dúvidas sobre estes termos: {contato}.</p>
     </Pagina>
   );
 }
