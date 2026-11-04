@@ -34,6 +34,7 @@ from app.models.oportunidade import Oportunidade
 from app.models.simulacao_rentabilidade import SimulacaoRentabilidade  # noqa: F401
 from app.models.usuario import Usuario
 from app.routers import (
+    admin as admin_router,
     alertas,
     anuncios_imoveis,
     imoveis,
@@ -60,6 +61,7 @@ ROUTERS = (
     simulacoes_rentabilidade,
     anuncios_imoveis,
     alertas,
+    admin_router,
 )
 
 
