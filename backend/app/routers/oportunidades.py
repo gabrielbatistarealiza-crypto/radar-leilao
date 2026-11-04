@@ -378,22 +378,16 @@ def criar_oportunidade(
                 detail="Este anúncio não está disponível.",
             )
 
-        # O anúncio pertence ao corretor responsável.
-        # Oportunidade deve ser atribuída ao usuário
-        # daquele corretor.
+        if anuncio.usuario_id == dados.cliente_id:
+            raise HTTPException(status_code=400, detail="Não pode demonstrar interesse no seu próprio anúncio.")
+
+        # Anúncio de corretor: a oportunidade vai para esse corretor. Anúncio de
+        # outra conta: fica sem corretor, para um administrador atribuir.
         corretor_anuncio = (
-            db.query(Corretor)
-            .filter(Corretor.id == anuncio.corretor_id)
-            .first()
+            db.query(Corretor).filter(Corretor.id == anuncio.corretor_id).first()
+            if anuncio.corretor_id is not None else None
         )
-
-        if not corretor_anuncio:
-            raise HTTPException(
-                status_code=404,
-                detail="Corretor do anúncio não encontrado.",
-            )
-
-        corretor_id = corretor_anuncio.usuario_id
+        corretor_id = corretor_anuncio.usuario_id if corretor_anuncio else None
 
         # Evita oportunidade ativa duplicada
         oportunidade_existente = (
@@ -487,18 +481,15 @@ def demonstrar_interesse_anuncio(
             detail="Este anúncio não está disponível.",
         )
 
-    # Busca o perfil do corretor responsável
-    corretor = (
-        db.query(Corretor)
-        .filter(Corretor.id == anuncio.corretor_id)
-        .first()
-    )
+    if anuncio.usuario_id == usuario_id:
+        raise HTTPException(status_code=400, detail="Não pode demonstrar interesse no seu próprio anúncio.")
 
-    if not corretor:
-        raise HTTPException(
-            status_code=404,
-            detail="Corretor do anúncio não encontrado.",
-        )
+    # Anúncio de corretor: a oportunidade vai para esse corretor. Anúncio de
+    # outra conta: fica sem corretor, para um administrador atribuir.
+    corretor = (
+        db.query(Corretor).filter(Corretor.id == anuncio.corretor_id).first()
+        if anuncio.corretor_id is not None else None
+    )
 
     # Impede interesse duplicado ativo
     oportunidade_existente = (
@@ -523,7 +514,7 @@ def demonstrar_interesse_anuncio(
         imovel_id=None,
         anuncio_id=anuncio.id,
         cliente_id=usuario_id,
-        corretor_id=corretor.usuario_id,
+        corretor_id=corretor.usuario_id if corretor else None,
         status="interesse",
         valor_imovel=anuncio.valor_anunciado,
         observacoes=None,

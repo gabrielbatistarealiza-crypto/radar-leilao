@@ -34,6 +34,7 @@ export default function Cabecalho({
               <a href="#meu-perfil">Meu perfil</a>
               <a href="#minhas-oportunidades">Minhas oportunidades</a>
               <a href="#alertas">Alertas</a>
+              <a href="#meus-anuncios">Meus anúncios</a>
               <a href="#consultoria">Dúvidas sobre leilão</a>
             </nav>
           )}
@@ -42,12 +43,14 @@ export default function Cabecalho({
               <a href="#painel-corretor">Minhas oportunidades</a>
               <a href="#perfil-corretor">Meu perfil</a>
               <a href="#alertas">Alertas</a>
+              <a href="#meus-anuncios">Meus anúncios</a>
               <a href="#consultoria">Dúvidas sobre leilão</a>
             </nav>
           )}
           {papel === "admin" && (
             <nav className="cliente-navigation" aria-label="Navegação do administrador">
               <a href="#alertas">Alertas</a>
+              <a href="#meus-anuncios">Meus anúncios</a>
             </nav>
           )}
           {ehAdministrador && (

@@ -12,7 +12,8 @@ class AnuncioImagemResponse(BaseModel):
 
 class AnuncioImovelResponse(BaseModel):
     id: int
-    corretor_id: int
+    usuario_id: int
+    corretor_id: int | None = None
     titulo: str
     tipo: str | None = None
     endereco: str | None = None
@@ -32,6 +33,9 @@ class AnuncioImovelResponse(BaseModel):
 
     status: str
     ativo: bool
+    motivo_rejeicao: str | None = None
+    comissao_percentual: float | None = None
+    comissao_aceite_em: object | None = None
 
     criado_em: object
     atualizado_em: object

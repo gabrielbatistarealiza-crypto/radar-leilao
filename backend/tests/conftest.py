@@ -218,6 +218,7 @@ class Fabrica:
 
     def anuncio(self, perfil_corretor, **campos):
         base = dict(
+            usuario_id=perfil_corretor.usuario_id,
             corretor_id=perfil_corretor.id,
             titulo="Anúncio de teste",
             valor_mercado=100000.0,

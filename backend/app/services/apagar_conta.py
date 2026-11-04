@@ -13,6 +13,7 @@ A ordem importa: várias tabelas apontam para usuarios sem ON DELETE.
 - Onde a pessoa só aparece como autora (atividades e simulações de outras
   oportunidades, decisões de pedidos): fica sem autor.
 """
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.anuncio_imagem import AnuncioImagem
@@ -57,15 +58,17 @@ def apagar_conta(db: Session, usuario: Usuario) -> dict:
     resultado["oportunidades_sem_corretor"] = db.query(Oportunidade).filter(
         Oportunidade.corretor_id == uid).update({"corretor_id": None}, synchronize_session=False)
 
-    # Perfil de corretor e anúncios.
+    # Anúncios da pessoa (qualquer conta pode publicar) e perfil de corretor.
     ids_perfil = [i for (i,) in db.query(Corretor.id).filter(Corretor.usuario_id == uid).all()]
+    dono = AnuncioImovel.usuario_id == uid
+    filtro = or_(dono, AnuncioImovel.corretor_id.in_(ids_perfil)) if ids_perfil else dono
+    ids_anuncios = [i for (i,) in db.query(AnuncioImovel.id).filter(filtro).all()]
+    if ids_anuncios:
+        db.query(Oportunidade).filter(Oportunidade.anuncio_id.in_(ids_anuncios)).update(
+            {"anuncio_id": None}, synchronize_session=False)
+        _apagar(db, AnuncioImagem, AnuncioImagem.anuncio_id.in_(ids_anuncios))
+        resultado["anuncios_apagados"] = _apagar(db, AnuncioImovel, AnuncioImovel.id.in_(ids_anuncios))
     if ids_perfil:
-        ids_anuncios = [i for (i,) in db.query(AnuncioImovel.id).filter(AnuncioImovel.corretor_id.in_(ids_perfil)).all()]
-        if ids_anuncios:
-            db.query(Oportunidade).filter(Oportunidade.anuncio_id.in_(ids_anuncios)).update(
-                {"anuncio_id": None}, synchronize_session=False)
-            _apagar(db, AnuncioImagem, AnuncioImagem.anuncio_id.in_(ids_anuncios))
-            resultado["anuncios_apagados"] = _apagar(db, AnuncioImovel, AnuncioImovel.id.in_(ids_anuncios))
         _apagar(db, Corretor, Corretor.id.in_(ids_perfil))
 
     # Onde a pessoa só é autora: fica sem autor.

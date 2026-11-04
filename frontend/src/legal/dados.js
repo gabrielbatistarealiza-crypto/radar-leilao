@@ -6,3 +6,6 @@ export const RESPONSAVEL = "AH NEGOCIOS, LEILOES E PARTICIPACOES LTDA";
 export const CNPJ = "";
 export const EMAIL_CONTATO = "abmg.negocios@gmail.com";
 export const ATUALIZADO_EM = "4 de novembro de 2026";
+// Comissão do site sobre o valor de venda, paga pelo vendedor (igual à da API:
+// COMISSAO_SITE_PERCENTUAL em backend/app/models/anuncio_imovel.py).
+export const COMISSAO_SITE = 6;

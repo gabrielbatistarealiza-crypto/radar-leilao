@@ -1,7 +1,7 @@
 // Política de Privacidade e Termos de Uso (abrem sem sessão: /privacidade e /termos).
 // Versão inicial, escrita a partir do que o site guarda de facto; deve ser revista
 // por um advogado antes do lançamento ao público.
-import { ATUALIZADO_EM, CNPJ, EMAIL_CONTATO, RESPONSAVEL } from "./dados";
+import { ATUALIZADO_EM, CNPJ, COMISSAO_SITE as COMISSAO, EMAIL_CONTATO, RESPONSAVEL } from "./dados";
 
 const identificacao = CNPJ ? `${RESPONSAVEL}, CNPJ ${CNPJ}` : RESPONSAVEL;
 
@@ -47,6 +47,7 @@ export function PoliticaPrivacidade({ onVoltar }) {
         <li><strong>Conta:</strong> nome, e-mail e senha. A senha nunca é guardada em texto: só uma versão cifrada (hash) que não permite recuperá-la.</li>
         <li><strong>Pedido de conta de corretor:</strong> CRECI, nome profissional, telefone e imobiliária, se os informar.</li>
         <li><strong>O que você cria no site:</strong> alertas de oportunidades, simulações de rentabilidade, oportunidades, negociações, operações e as observações que escrever nelas.</li>
+        <li><strong>Anúncios que publicar:</strong> os dados do imóvel, valores, fotos e a data em que aceitou a comissão do site.</li>
         <li><strong>Notificações e e-mails:</strong> as novidades dos seus alertas e a data em que enviamos o resumo por e-mail.</li>
         <li><strong>Recuperação de senha:</strong> um código de uso único, guardado apenas na forma cifrada e válido por 1 hora.</li>
         <li><strong>Perguntas à seção "Dúvidas sobre leilão":</strong> o texto das perguntas e respostas da conversa é enviado ao serviço de inteligência artificial que gera a resposta (ver item 4). Não guardamos essas conversas na nossa base.</li>
@@ -69,6 +70,7 @@ export function PoliticaPrivacidade({ onVoltar }) {
         <li><strong>Brevo</strong> (envio de e-mails: recuperação de senha e resumos de alertas). Recebe o seu nome, e-mail e o conteúdo da mensagem.</li>
         <li><strong>Anthropic</strong> (serviço de inteligência artificial usado na seção "Dúvidas sobre leilão"). Recebe o texto das perguntas que você fizer; evite escrever dados pessoais nessas perguntas.</li>
         <li><strong>Outros usuários, só quando necessário:</strong> numa oportunidade, o corretor atribuído e o cliente veem os dados um do outro necessários para o atendimento (como nome e e-mail).</li>
+        <li><strong>Anúncios publicados:</strong> depois de aprovados, os dados do imóvel e as fotos ficam visíveis a quem usa o site; o seu nome e contato não aparecem no anúncio.</li>
         <li><strong>Caixa Econômica Federal:</strong> as fotos dos imóveis são carregadas diretamente do site da Caixa pelo seu navegador, que por isso fica sabendo o seu endereço IP, como em qualquer visita ao site da Caixa. Não enviamos à Caixa nenhum dado da sua conta.</li>
       </ul>
 
@@ -165,11 +167,17 @@ export function TermosUso({ onVoltar }) {
         <li>Você é responsável pelo que fizer com a sua conta.</li>
       </ul>
 
-      <h2>5. Corretores</h2>
+      <h2>5. Anúncios e corretores</h2>
+      <p>
+        Qualquer usuário com conta pode anunciar um imóvel. Quem anuncia declara ter direito de o
+        vender ou autorização para o anunciar, e é responsável pela veracidade das informações, valores
+        e fotos. Cada anúncio é revisto por um administrador antes de aparecer no site; podemos recusar,
+        pedir correções ou retirar anúncios incompletos, falsos ou que violem estes termos.
+      </p>
       <p>
         Contas de corretor exigem CRECI válido e aprovação. O corretor é responsável pela sua atuação
-        profissional, pela veracidade dos anúncios que publicar e pelo cumprimento das regras do seu
-        conselho profissional. Podemos recusar ou retirar a aprovação se houver dados falsos ou abuso.
+        profissional e pelo cumprimento das regras do seu conselho profissional. Podemos recusar ou
+        retirar a aprovação se houver dados falsos ou abuso.
       </p>
 
       <h2>6. Usos proibidos</h2>
@@ -179,11 +187,22 @@ export function TermosUso({ onVoltar }) {
         <li>Publicar conteúdo falso, ilegal ou que viole direitos de terceiros.</li>
       </ul>
 
-      <h2>7. Preço e planos pagos</h2>
+      <h2>7. Preço e comissão sobre vendas</h2>
       <p>
-        Neste momento o uso do Radar Leilão é gratuito. Poderemos lançar funcionalidades ou planos
-        pagos; nesse caso, preço, forma de pagamento e condições de cancelamento serão informados
-        antes de qualquer cobrança, e nada será cobrado sem a sua aceitação expressa.
+        Pesquisar imóveis, criar alertas e anunciar no Radar Leilão é gratuito.
+      </p>
+      <p>
+        <strong>Comissão do site:</strong> quem anuncia um imóvel aceita pagar ao Radar Leilão uma
+        comissão de <strong>{COMISSAO}% sobre o valor final de venda</strong>, se a venda for feita a
+        um comprador que chegou ao imóvel pelo site (por exemplo, por ter demonstrado interesse no
+        anúncio). A comissão é paga pelo vendedor quando o negócio fechar; a forma e o prazo de
+        pagamento são combinados nessa altura. A aceitação fica registada, com a data, quando o
+        anúncio é enviado.
+      </p>
+      <p>
+        Poderemos lançar outras funcionalidades ou planos pagos; nesse caso, preço, forma de pagamento
+        e condições de cancelamento serão informados antes de qualquer cobrança, e nada será cobrado
+        sem a sua aceitação expressa.
       </p>
 
       <h2>8. Responsabilidade</h2>
