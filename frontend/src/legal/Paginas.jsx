@@ -89,7 +89,7 @@ export function PoliticaPrivacidade({ onVoltar }) {
       <h2>7. Por quanto tempo guardamos</h2>
       <ul>
         <li>Dados da conta e o que você criou no site: enquanto a conta existir.</li>
-        <li>Depois de um pedido de exclusão da conta: apagamos em até 30 dias, salvo o que a lei obrigar a guardar.</li>
+        <li>Se você apagar a conta no site (botão "Apagar a minha conta", em Meu perfil), ela e os dados ligados a ela são apagados na hora. Se pedir por e-mail, apagamos em até 30 dias. Em ambos os casos, salvo o que a lei obrigar a guardar.</li>
         <li>Códigos de recuperação de senha: deixam de valer após 1 hora ou após o uso.</li>
         <li>Registros técnicos: pelo tempo definido pelo provedor de hospedagem e pela lei.</li>
       </ul>
@@ -102,8 +102,9 @@ export function PoliticaPrivacidade({ onVoltar }) {
         dados e da conta; e revisão de decisões tomadas apenas de forma automatizada (art. 18 da LGPD).
       </p>
       <p>
-        Para exercer qualquer um destes direitos, escreva para {contato} a partir do e-mail da sua
-        conta. Respondemos em até 15 dias. Você também pode apresentar reclamação à Autoridade
+        Para apagar a conta e os seus dados, você pode usar o botão "Apagar a minha conta" em Meu
+        perfil, que confirma com a sua senha. Para os outros direitos (ou se preferir), escreva para
+        {" "}{contato} a partir do e-mail da sua conta. Respondemos em até 15 dias. Você também pode apresentar reclamação à Autoridade
         Nacional de Proteção de Dados (ANPD).
       </p>
 
@@ -202,7 +203,8 @@ export function TermosUso({ onVoltar }) {
 
       <h2>10. Suspensão e encerramento</h2>
       <p>
-        Você pode encerrar a sua conta a qualquer momento, pedindo por {contato}. Podemos suspender
+        Você pode encerrar a sua conta a qualquer momento, pelo botão "Apagar a minha conta" em Meu
+        perfil ou pedindo por {contato}. Podemos suspender
         contas que violem estes termos. Também podemos alterar ou descontinuar o serviço, avisando com
         antecedência razoável sempre que possível.
       </p>
