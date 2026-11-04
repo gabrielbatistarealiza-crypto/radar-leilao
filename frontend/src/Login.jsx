@@ -6,14 +6,14 @@ import VitrineDestaques from "./componentes/VitrineDestaques";
 
 import { API_URL } from "./api";
 
-function Login({ onLogin }) {
+function Login({ onLogin, avisoInicial = "" }) {
   const [criandoConta, setCriandoConta] = useState(false);
   const [esqueceuSenha, setEsqueceuSenha] = useState(false);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
-  const [aviso, setAviso] = useState("");
+  const [aviso, setAviso] = useState(avisoInicial);
   const campoEmail = useRef(null);
 
   // Um imóvel da vitrine: os detalhes pedem conta.
