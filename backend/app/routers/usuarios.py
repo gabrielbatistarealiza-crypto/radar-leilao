@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -8,8 +9,9 @@ from app.schemas.usuario import (
     UsuarioResponse,
     TIPOS_USUARIO,
 )
-from app.security.password import gerar_hash
+from app.security.password import gerar_hash, verificar_senha
 from app.security.auth import usuario_admin, usuario_atual
+from app.services.apagar_conta import UltimoAdministrador, apagar_conta
 
 
 router = APIRouter(
@@ -22,6 +24,29 @@ router = APIRouter(
 def meu_usuario(usuario: Usuario = Depends(usuario_atual)):
     # O mesmo caminho de todas as rotas: pelo id do token.
     return usuario
+
+
+class ConfirmarApagar(BaseModel):
+    senha: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/me/apagar")
+def apagar_minha_conta(
+    dados: ConfirmarApagar,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """Apaga a própria conta e os dados ligados a ela (pede a senha para confirmar)."""
+    if not verificar_senha(dados.senha, usuario.senha):
+        raise HTTPException(status_code=403, detail="Senha incorreta.")
+    try:
+        apagar_conta(db, usuario)
+    except UltimoAdministrador:
+        raise HTTPException(
+            status_code=400,
+            detail="É o último administrador: nomeie outro antes de apagar esta conta.",
+        )
+    return {"mensagem": "A sua conta e os seus dados foram apagados."}
 
 
 @router.post("", response_model=UsuarioResponse)

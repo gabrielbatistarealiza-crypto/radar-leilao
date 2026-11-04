@@ -166,6 +166,12 @@ function App() {
     }
   }
 
+  // Conta apagada pelo próprio utilizador: sai e confirma no ecrã de entrada.
+  function contaApagada() {
+    sair();
+    setAvisoSessao("A sua conta e os seus dados foram apagados.");
+  }
+
   // Sessão expirada (token passou da hora ou a API recusou-o): volta ao login com aviso.
   const sairPorSessaoExpirada = useRef(null);
   sairPorSessaoExpirada.current = () => {
@@ -762,6 +768,7 @@ function App() {
             <PerfilCliente
               token={token}
               usuario={usuario}
+              onContaApagada={contaApagada}
             />
 
             <div className="container">
@@ -808,6 +815,8 @@ function App() {
           <>
             <PerfilCorretor
               usuario={usuario}
+              token={token}
+              onContaApagada={contaApagada}
             />
             <Corretor
               usuario={usuario}

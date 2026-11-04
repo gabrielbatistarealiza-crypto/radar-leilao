@@ -1,10 +1,12 @@
 // Extraído do App.jsx na fase 5 (sem alterações de comportamento).
 import PedidoCorretor from "../PedidoCorretor";
 import { ROTULOS_PAPEL } from "../papel";
+import ApagarConta from "./ApagarConta";
 
 export default function PerfilCliente({
   token,
   usuario,
+  onContaApagada,
 }) {
   return (
     <section id="meu-perfil" className="container cliente-profile-section">
@@ -28,6 +30,7 @@ export default function PerfilCliente({
           </div>
         </dl>
         <PedidoCorretor token={token} />
+        <ApagarConta token={token} onApagada={onContaApagada} />
       </div>
     </section>
   );

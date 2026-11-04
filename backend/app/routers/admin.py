@@ -16,6 +16,7 @@ from app.routers.oportunidades import STATUS_VALIDOS as STATUS_OPORTUNIDADE_VALI
 from app.schemas.usuario import UsuarioCreate, UsuarioResponse, UsuarioUpdate
 from app.security.auth import usuario_admin, usuario_e_admin
 from app.security.password import gerar_hash
+from app.services.apagar_conta import apagar_conta
 from pydantic import BaseModel
 
 
@@ -433,8 +434,9 @@ def excluir_usuario_admin(
                 detail="O sistema precisa ter pelo menos um administrador.",
             )
 
-    db.delete(usuario)
-    db.commit()
+    # O mesmo serviço do "apagar a minha conta": trata oportunidades, perfil de
+    # corretor, pedidos e alertas (um db.delete simples falhava por causa deles).
+    apagar_conta(db, usuario)
 
     return {
         "mensagem": "Usuário excluído com sucesso.",

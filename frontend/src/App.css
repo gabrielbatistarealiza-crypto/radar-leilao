@@ -3243,6 +3243,20 @@ a {
   padding-top: 24px;
 }
 
+/* Apagar a minha conta */
+.apagar-conta { margin-top: 18px; padding-top: 14px; border-top: 1px solid #eef2f6; text-align: left; }
+.apagar-conta-abrir, .apagar-conta-cancelar { padding: 6px 0; border: 0; background: none; color: #b42318; font: inherit; font-size: 13px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.apagar-conta-cancelar { color: #475569; }
+.apagar-conta-aberto { display: grid; gap: 10px; padding: 14px; border: 1px solid #fecaca; border-radius: 10px; background: #fef2f2; }
+.apagar-conta-aberto strong { color: #b42318; }
+.apagar-conta-aberto p { margin: 0; color: #475569; font-size: 13px; line-height: 1.5; }
+.apagar-conta-aberto label { display: grid; gap: 6px; color: #344054; font-size: 13px; font-weight: 600; }
+.apagar-conta-aberto { color-scheme: light; }
+.apagar-conta-aberto input { min-height: 40px; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; color: #172033; font: inherit; }
+.apagar-conta-botoes { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.apagar-conta-confirmar { min-height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #b42318; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.apagar-conta-confirmar:disabled { opacity: .65; cursor: wait; }
+
 .cliente-profile-card {
   padding: 22px 24px;
   border: 1px solid #e2e8f0;
