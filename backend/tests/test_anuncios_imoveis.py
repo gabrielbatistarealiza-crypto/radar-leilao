@@ -51,6 +51,7 @@ def dados(sessao):
 
     def anuncio(titulo, status):
         return AnuncioImovel(
+            usuario_id=usuario.id,
             corretor_id=corretor.id,
             titulo=titulo,
             valor_mercado=100000,
@@ -150,16 +151,16 @@ def test_atualizar_com_desconto_valido(sessao, dados):
     assert resposta.json()["desconto"] == pytest.approx(25.0)
 
 
-def test_atualizar_com_desconto_abaixo_do_minimo_e_recusado(sessao, dados):
+def test_ja_nao_ha_desconto_minimo_e_a_edicao_volta_a_analise(sessao, dados):
+    # Antes exigia-se 20% abaixo do valor de mercado; agora qualquer desconto serve.
     http = montar_cliente(sessao, dono(dados))
     resposta = http.put(
         f"/anuncios-imoveis/{dados.publicado.id}",
-        json=corpo_atualizacao(dados.corretor.id, mercado=100000, anunciado=90000),
+        json=corpo_atualizacao(dados.corretor.id, mercado=100000, anunciado=95000),
     )
-    assert resposta.status_code == 400
-    assert "20%" in resposta.json()["detail"]
-    sessao.refresh(dados.publicado)
-    assert dados.publicado.valor_anunciado == 70000  # nada foi gravado
+    assert resposta.status_code == 200
+    assert resposta.json()["desconto"] == pytest.approx(5.0)
+    assert resposta.json()["status"] == "em_analise"  # editado pelo dono: volta a ser revisto
 
 
 def test_atualizar_com_valor_anunciado_maior_que_o_de_mercado_e_recusado(sessao, dados):

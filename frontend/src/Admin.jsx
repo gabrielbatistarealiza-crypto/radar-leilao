@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PedidosCorretorAdmin from "./PedidosCorretorAdmin";
+import ModeracaoAnuncios from "./ModeracaoAnuncios";
 import {
   LIMITE_POR_PEDIDO,
   aguardarComParagem,
@@ -795,6 +796,8 @@ function Admin({ usuario, onLogout }) {
         </section>
 
         <PedidosCorretorAdmin token={token} onDecidido={carregarUsuarios} />
+
+        <ModeracaoAnuncios token={token} />
 
         <section className="admin-section admin-users-section">
               <div className="admin-section-heading">

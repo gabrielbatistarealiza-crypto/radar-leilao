@@ -9,6 +9,8 @@ import MinhasOportunidades from "./MinhasOportunidades";
 import Corretor from "./Corretor";
 import StatusCaixa from "./StatusCaixa";
 import Alertas from "./Alertas";
+import AnunciosPublicos from "./AnunciosPublicos";
+import MeusAnuncios from "./MeusAnuncios";
 import Consultoria from "./Consultoria";
 import {
   SlidersHorizontal,
@@ -769,6 +771,9 @@ function App() {
         />
 
         {(papel === "cliente" || papel === "corretor" || papel === "admin") && <Alertas token={token} />}
+
+        {papel && <AnunciosPublicos usuario={usuario} token={token} />}
+        {papel && <MeusAnuncios token={token} />}
 
         {papel === "cliente" && (
           <>

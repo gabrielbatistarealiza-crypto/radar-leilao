@@ -121,6 +121,65 @@
 .resumo-email input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #173f70; }
 .resumo-email small { color: #687386; font-size: 12px; }
 .resumo-email .resumo-email-erro { color: #b42318; }
+
+/* Meus anúncios (qualquer conta publica; aprovação do administrador) */
+.meus-anuncios { margin-top: 28px; margin-bottom: 32px; }
+.meus-anuncios-cabecalho { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
+.meus-anuncios-cabecalho h2 { display: flex; gap: 8px; align-items: center; margin: 4px 0; color: #172033; }
+.meus-anuncios-cabecalho p { margin: 0; color: #687386; }
+.meus-anuncios-novo, .meus-anuncios-botoes button[type="submit"] { min-height: 42px; padding: 0 18px; border: 0; border-radius: 8px; background: #173f70; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.meus-anuncios-botoes button[type="submit"]:disabled { opacity: .65; cursor: wait; }
+.meus-anuncios-cancelar { border: 0; background: none; color: #475569; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.meus-anuncios-ok { padding: 10px 12px; border-radius: 8px; background: #ecfdf3; color: #067647; }
+.meus-anuncios-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 18px; padding: 18px; border: 1px solid #dbe3ef; border-radius: 12px; background: #fff; color-scheme: light; }
+.meus-anuncios-form label { display: grid; gap: 6px; color: #344054; font-size: 13px; font-weight: 600; }
+.meus-anuncios-form input, .meus-anuncios-form textarea { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; color: #172033; font: inherit; font-weight: 400; }
+.meus-anuncios-form .largo { grid-column: 1 / -1; }
+.meus-anuncios-resumo { margin: 0; padding: 10px 12px; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 13px; }
+.meus-anuncios-form label.meus-anuncios-comissao { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; font-weight: 500; line-height: 1.45; cursor: pointer; }
+.meus-anuncios-form label.meus-anuncios-comissao input { width: 18px; min-height: 0; height: 18px; margin: 2px 0 0; flex: 0 0 18px; accent-color: #173f70; }
+.meus-anuncios-comissao a { color: #173f70; }
+.meus-anuncios-botoes { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.meus-anuncios-lista { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.meus-anuncios-lista li { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.meus-anuncios-lista li > div:first-child { display: grid; gap: 3px; min-width: 0; text-align: left; }
+.meus-anuncios-lista strong { color: #172033; }
+.meus-anuncios-lista small { color: #687386; }
+.meus-anuncios-estado { justify-self: start; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.meus-anuncios-estado.analise { background: #fffbeb; color: #b45309; }
+.meus-anuncios-estado.publicado { background: #ecfdf3; color: #067647; }
+.meus-anuncios-estado.rejeitado { background: #fef2f2; color: #b42318; }
+.meus-anuncios-lista small.meus-anuncios-motivo { color: #b42318; }
+.meus-anuncios-acoes { display: flex; gap: 6px; }
+.meus-anuncios-acoes button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; cursor: pointer; }
+.meus-anuncios-vazio { color: #687386; }
+
+/* Imóveis anunciados (página principal) */
+.anuncios-publicos { margin-top: 28px; margin-bottom: 8px; }
+.anuncios-publicos h2 { margin: 4px 0; color: #172033; }
+.anuncios-publicos-sub { margin: 0 0 14px; color: #687386; }
+.anuncio-publico { cursor: default; }
+.anuncio-publico:hover { transform: none; }
+.anuncio-publico-descricao { display: -webkit-box; overflow: hidden; color: #475569; font-size: 13px; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.anuncio-publico-interesse { margin-top: 8px; min-height: 38px; border: 0; border-radius: 8px; background: #173f70; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.anuncio-publico-interesse:disabled { opacity: .7; cursor: default; }
+.anuncio-publico-nota { color: #687386; }
+.anuncio-publico-ok { color: #067647; }
+.anuncio-publico-erro { color: #b42318; }
+
+/* Moderação de anúncios (painel de administração) */
+.moderacao-cabecalho { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 12px; }
+.moderacao-cabecalho h2 { margin: 4px 0; }
+.moderacao-lista { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.moderacao-lista li { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; }
+.moderacao-dados { display: grid; gap: 4px; min-width: 0; flex: 1 1 320px; }
+.moderacao-dados small { color: #687386; }
+.moderacao-dados p { margin: 4px 0 0; color: #475569; font-size: 13px; }
+.moderacao-fotos { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.moderacao-botoes { display: flex; gap: 8px; }
+.moderacao-aprovar, .moderacao-rejeitar { min-height: 38px; padding: 0 14px; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer; }
+.moderacao-aprovar { border: 0; background: #067647; color: #fff; }
+.moderacao-rejeitar { border: 1px solid #fecaca; background: #fff; color: #b42318; }
 @media (max-width: 850px) { .alertas-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .alertas-grid { grid-template-columns: 1fr; } }
 @media (max-width: 500px) { .alertas-form { grid-template-columns: 1fr; } }
 

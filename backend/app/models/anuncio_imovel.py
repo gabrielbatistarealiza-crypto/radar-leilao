@@ -7,6 +7,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -14,18 +15,40 @@ from sqlalchemy.orm import relationship
 
 from app.database.database import Base
 
+# Estados de um anúncio. Os novos começam em análise até um administrador aprovar.
+EM_ANALISE = "em_analise"
+PUBLICADO = "publicado"
+REJEITADO = "rejeitado"
+
+# Comissão do site, paga pelo vendedor sobre o valor de venda se o negócio fechar pelo site.
+COMISSAO_SITE_PERCENTUAL = 6
+
 
 class AnuncioImovel(Base):
     __tablename__ = "anuncios_imoveis"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    corretor_id = Column(
+    # Dono do anúncio: qualquer conta pode publicar.
+    usuario_id = Column(
         Integer,
-        ForeignKey("corretores.id"),
+        ForeignKey("usuarios.id"),
         nullable=False,
         index=True,
     )
+
+    # Perfil de corretor, quando quem publica é corretor (senão vazio).
+    corretor_id = Column(
+        Integer,
+        ForeignKey("corretores.id"),
+        nullable=True,
+        index=True,
+    )
+
+    # Comissão aceite por quem publicou (percentagem e quando aceitou).
+    comissao_percentual = Column(Numeric(5, 2), nullable=True)
+    comissao_aceite_em = Column(DateTime, nullable=True)
+    motivo_rejeicao = Column(String(500), nullable=True)
 
     titulo = Column(String(255), nullable=False)
     tipo = Column(String(100), nullable=True)
@@ -48,7 +71,7 @@ class AnuncioImovel(Base):
     status = Column(
         String(30),
         nullable=False,
-        default="publicado",
+        default=EM_ANALISE,
         index=True,
     )
 
