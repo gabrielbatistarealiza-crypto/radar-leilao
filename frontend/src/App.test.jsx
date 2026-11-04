@@ -178,6 +178,18 @@ describe("App (rede de segurança)", () => {
     expect(await screen.findByRole("heading", { name: /Alertas de oportunidades/ })).toBeInTheDocument();
   });
 
+  it("sessão expirada a meio: um 401 com sessão volta ao login com aviso", async () => {
+    localStorage.setItem("radar-leilao-token", "tok");
+    const base = apiFalsa({ usuario: CLIENTE });
+    vi.stubGlobal("fetch", vi.fn(async (url, opcoes) =>
+      String(url).includes("/alertas") ? respostaJson({ detail: "Não autenticado" }, 401) : base(url, opcoes)));
+    montar();
+
+    expect(await screen.findByText(/A sua sessão expirou/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entrar" })).toBeInTheDocument();
+    expect(localStorage.getItem("radar-leilao-token")).toBeNull();
+  });
+
   it("login recusado por formato (422) mostra uma mensagem legível", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/login")) {

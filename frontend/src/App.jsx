@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Login from "./Login";
 import { RedefinirSenha } from "./RecuperarSenha";
@@ -38,6 +38,7 @@ import PerfilCliente from "./componentes/PerfilCliente";
 import PerfilCorretor from "./componentes/PerfilCorretor";
 import TopoPesquisa from "./componentes/TopoPesquisa";
 import { papelDoUsuario } from "./papel";
+import { AVISO_SESSAO_EXPIRADA, vigiarSessao } from "./sessao";
 
 function App() {
   const location = useLocation();
@@ -48,6 +49,7 @@ function App() {
 
   const [usuario, setUsuario] = useState(null);
   const [verificandoAutenticacao, setVerificandoAutenticacao] = useState(true);
+  const [avisoSessao, setAvisoSessao] = useState("");
   const papel = papelDoUsuario(usuario);
   const ehAdministrador = papel === "admin";
 
@@ -143,6 +145,8 @@ function App() {
         localStorage.removeItem("radar-leilao-token");
         setToken(null);
         setUsuario(null);
+        // Sem ligação à API não é uma sessão expirada: aí não se diz que expirou.
+        if (!(erro instanceof TypeError)) setAvisoSessao(AVISO_SESSAO_EXPIRADA);
       } finally {
         setVerificandoAutenticacao(false);
       }
@@ -161,6 +165,20 @@ function App() {
       navegar("/", { replace: true });
     }
   }
+
+  // Sessão expirada (token passou da hora ou a API recusou-o): volta ao login com aviso.
+  const sairPorSessaoExpirada = useRef(null);
+  sairPorSessaoExpirada.current = () => {
+    sair();
+    setAvisoSessao(AVISO_SESSAO_EXPIRADA);
+  };
+
+  // useLayoutEffect: tem de estar instalado antes dos primeiros pedidos dos
+  // ecrãs filhos (Alertas, painel...), que correm nos seus useEffect.
+  useLayoutEffect(() => {
+    if (!token || !usuario) return undefined;
+    return vigiarSessao(token, () => sairPorSessaoExpirada.current());
+  }, [token, usuario]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -702,7 +720,9 @@ function App() {
   if (!token || !usuario) {
     return (
       <Login
+        avisoInicial={avisoSessao}
         onLogin={(novoToken) => {
+          setAvisoSessao("");
           setToken(novoToken);
           setVerificandoAutenticacao(true);
         }}
