@@ -135,6 +135,10 @@ function Login({ onLogin, avisoInicial = "" }) {
         <button type="button" className="login-alternar" onClick={() => setEsqueceuSenha(true)}>
           Esqueci a senha
         </button>
+
+        <p className="legal-links">
+          <a href="/termos">Termos de Uso</a> · <a href="/privacidade">Política de Privacidade</a>
+        </p>
       </div>
 
       <VitrineDestaques onEscolher={escolherDaVitrine} />

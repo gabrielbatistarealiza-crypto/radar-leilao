@@ -156,6 +156,12 @@ function Registo({ onRegistado, onVoltar }) {
 
           {erro && <div className="login-error" role="alert">{erro}</div>}
 
+          <p className="legal-aceite">
+            Ao criar a conta, você concorda com os{" "}
+            <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e a{" "}
+            <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.
+          </p>
+
           <button type="submit" disabled={enviando}>
             {enviando ? "Criando conta..." : "Criar conta"}
           </button>

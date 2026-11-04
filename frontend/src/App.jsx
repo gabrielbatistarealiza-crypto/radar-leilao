@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Login from "./Login";
 import { RedefinirSenha } from "./RecuperarSenha";
 import DesligarAlertas from "./DesligarAlertas";
+import { PoliticaPrivacidade, TermosUso } from "./legal/Paginas";
 import Admin from "./Admin";
 import MinhasOportunidades from "./MinhasOportunidades";
 import Corretor from "./Corretor";
@@ -696,6 +697,12 @@ function App() {
     );
   }
 
+  // Política de Privacidade e Termos de Uso: abrem com ou sem sessão.
+  if (location.pathname === "/privacidade" || location.pathname === "/termos") {
+    const Legal = location.pathname === "/privacidade" ? PoliticaPrivacidade : TermosUso;
+    return <Legal onVoltar={() => navegar("/", { replace: true })} />;
+  }
+
   // A ligação "deixar de receber" do resumo de alertas também abre sem sessão.
   if (location.pathname === "/desligar-alertas") {
     return (
@@ -1383,6 +1390,10 @@ function App() {
           usuario={usuario}
         />
       )}
+
+      <footer className="rodape-legal">
+        <Link to="/termos">Termos de Uso</Link> · <Link to="/privacidade">Política de Privacidade</Link>
+      </footer>
     </div>
   );
 
