@@ -1,16 +1,19 @@
 // "Meus anúncios": qualquer conta publica imóveis. Cada anúncio passa por aprovação
 // de um administrador e exige aceitar a comissão de 6% do site sobre o valor de venda.
+// As fotos são escolhidas no computador ou no telemóvel (galeria ou câmara) e
+// reduzidas no próprio aparelho antes de serem enviadas.
 import { useCallback, useEffect, useState } from "react";
-import { Megaphone, Pencil, Trash2 } from "lucide-react";
+import { Camera, Home, Megaphone, Pencil, Trash2, X } from "lucide-react";
 
 import { pedirApi } from "./api";
 import { dinheiro } from "./imovel/analise";
 import { COMISSAO_SITE } from "./legal/dados";
+import { MAX_FOTOS, reduzirImagem, urlDaFoto } from "./imagens";
 
 const VAZIO = {
   titulo: "", tipo: "", cidade: "", estado: "", endereco: "",
   valor_mercado: "", valor_anunciado: "", area: "", quartos: "", banheiros: "", vagas: "",
-  descricao: "", foto: "", aceito_comissao: false,
+  descricao: "", aceito_comissao: false,
 };
 
 const ESTADOS = {
@@ -38,14 +41,25 @@ function paraCorpo(form) {
   };
 }
 
+function previa(ficheiro) {
+  try {
+    return URL.createObjectURL(ficheiro);
+  } catch {
+    return null;
+  }
+}
+
 export default function MeusAnuncios({ token }) {
   const [anuncios, setAnuncios] = useState([]);
   const [form, setForm] = useState(VAZIO);
   const [editandoId, setEditandoId] = useState(null);
+  const [fotosExistentes, setFotosExistentes] = useState([]);
+  const [aRemover, setARemover] = useState([]);
+  const [novasFotos, setNovasFotos] = useState([]); // [{ficheiro, previa}]
   const [aberto, setAberto] = useState(false);
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
-  const [guardando, setGuardando] = useState(false);
+  const [guardando, setGuardando] = useState("");
 
   const carregar = useCallback(async () => {
     try {
@@ -64,25 +78,54 @@ export default function MeusAnuncios({ token }) {
     ? ((Number(form.valor_mercado) - Number(form.valor_anunciado)) / Number(form.valor_mercado)) * 100
     : null;
 
-  function novo() {
-    setForm(VAZIO);
-    setEditandoId(null);
+  const fotosMantidas = fotosExistentes.filter((f) => !aRemover.includes(f.id));
+  const totalFotos = fotosMantidas.length + novasFotos.length;
+
+  function limparFotos() {
+    novasFotos.forEach((f) => f.previa && URL.revokeObjectURL?.(f.previa));
+    setNovasFotos([]);
+    setFotosExistentes([]);
+    setARemover([]);
+  }
+
+  function abrir(dados, id, fotos) {
+    limparFotos();
+    setForm(dados);
+    setEditandoId(id);
+    setFotosExistentes(fotos);
     setErro("");
     setMensagem("");
     setAberto(true);
   }
 
   function editar(a) {
-    setForm({
-      ...VAZIO,
-      ...Object.fromEntries(Object.keys(VAZIO).map((k) => [k, a[k] ?? VAZIO[k]])),
-      foto: "",
-      aceito_comissao: true,
-    });
-    setEditandoId(a.id);
-    setErro("");
-    setMensagem("");
-    setAberto(true);
+    abrir(
+      { ...VAZIO, ...Object.fromEntries(Object.keys(VAZIO).map((k) => [k, a[k] ?? VAZIO[k]])), aceito_comissao: true },
+      a.id,
+      a.fotos || [],
+    );
+  }
+
+  function fechar() {
+    limparFotos();
+    setAberto(false);
+    setEditandoId(null);
+  }
+
+  function escolherFotos(e) {
+    const escolhidas = [...(e.target.files || [])].filter((f) => f.type?.startsWith("image/"));
+    e.target.value = ""; // permite voltar a escolher a mesma foto
+    const cabem = Math.max(0, MAX_FOTOS - totalFotos);
+    if (escolhidas.length > cabem) {
+      setErro(`Cada anúncio pode ter no máximo ${MAX_FOTOS} fotos.`);
+    }
+    setNovasFotos([...novasFotos, ...escolhidas.slice(0, cabem).map((ficheiro) => ({ ficheiro, previa: previa(ficheiro) }))]);
+  }
+
+  function tirarNova(indice) {
+    const foto = novasFotos[indice];
+    if (foto?.previa) URL.revokeObjectURL?.(foto.previa);
+    setNovasFotos(novasFotos.filter((_, i) => i !== indice));
   }
 
   async function guardar(e) {
@@ -93,7 +136,7 @@ export default function MeusAnuncios({ token }) {
       setErro(`Para publicar é preciso aceitar a comissão de ${COMISSAO_SITE}% do site.`);
       return;
     }
-    setGuardando(true);
+    setGuardando("Enviando...");
     try {
       const anuncio = await pedirApi(editandoId ? `/anuncios-imoveis/${editandoId}` : "/anuncios-imoveis", {
         metodo: editandoId ? "PUT" : "POST",
@@ -101,25 +144,35 @@ export default function MeusAnuncios({ token }) {
         token,
         erroPadrao: "Não foi possível salvar o anúncio.",
       });
-      if (form.foto.trim()) {
-        await pedirApi(`/anuncios-imoveis/${anuncio.id}/fotos`, {
-          metodo: "POST",
-          corpo: { url: form.foto.trim(), ordem: anuncio.fotos?.length || 0 },
-          token,
-          erroPadrao: "O anúncio foi salvo, mas a foto não: use um endereço que comece com https://",
-        });
+      for (const id of aRemover) {
+        await pedirApi(`/anuncios-imoveis/${anuncio.id}/fotos/${id}`, { metodo: "DELETE", token });
+      }
+      const falhadas = [];
+      for (const [i, { ficheiro }] of novasFotos.entries()) {
+        setGuardando(`Enviando fotos (${i + 1} de ${novasFotos.length})...`);
+        try {
+          const conteudo = await reduzirImagem(ficheiro);
+          await pedirApi(`/anuncios-imoveis/${anuncio.id}/fotos/carregar`, {
+            metodo: "POST",
+            corpo: { conteudo_base64: conteudo },
+            token,
+            erroPadrao: "Não foi possível enviar a foto.",
+          });
+        } catch (falha) {
+          falhadas.push(`${ficheiro.name}: ${falha.message}`);
+        }
       }
       setMensagem(anuncio.status === "publicado"
         ? "Anúncio publicado."
         : "Anúncio enviado. Fica em análise até um administrador aprovar.");
-      setAberto(false);
+      if (falhadas.length) setErro(`O anúncio foi salvo, mas algumas fotos não: ${falhadas.join("; ")}`);
+      fechar();
       setForm(VAZIO);
-      setEditandoId(null);
       await carregar();
     } catch (falha) {
       setErro(falha instanceof TypeError ? "Não foi possível conectar à API." : falha.message);
     } finally {
-      setGuardando(false);
+      setGuardando("");
     }
   }
 
@@ -141,7 +194,7 @@ export default function MeusAnuncios({ token }) {
           <h2><Megaphone size={22} aria-hidden="true" /> Meus anúncios</h2>
           <p>Anuncie um imóvel seu. Cada anúncio é revisado por um administrador antes de aparecer no site.</p>
         </div>
-        {!aberto && <button type="button" className="meus-anuncios-novo" onClick={novo}>Anunciar imóvel</button>}
+        {!aberto && <button type="button" className="meus-anuncios-novo" onClick={() => abrir(VAZIO, null, [])}>Anunciar imóvel</button>}
       </div>
 
       {erro && <p className="alertas-erro" role="alert">{erro}</p>}
@@ -161,7 +214,32 @@ export default function MeusAnuncios({ token }) {
           <label>Banheiros<input type="number" min="0" value={form.banheiros} onChange={mudar("banheiros")} /></label>
           <label>Vagas<input type="number" min="0" value={form.vagas} onChange={mudar("vagas")} /></label>
           <label className="largo">Descrição<textarea rows="3" value={form.descricao} onChange={mudar("descricao")} /></label>
-          <label className="largo">Foto (endereço da imagem, opcional)<input value={form.foto} onChange={mudar("foto")} placeholder="https://..." /></label>
+
+          <div className="largo meus-anuncios-fotos">
+            <span className="meus-anuncios-fotos-titulo">Fotos ({totalFotos} de {MAX_FOTOS})</span>
+            <div className="meus-anuncios-miniaturas">
+              {fotosMantidas.map((f) => (
+                <div key={`e-${f.id}`} className="meus-anuncios-miniatura">
+                  <img src={urlDaFoto(f.url)} alt="Foto do anúncio" />
+                  <button type="button" onClick={() => setARemover([...aRemover, f.id])} aria-label="Remover foto"><X size={14} /></button>
+                </div>
+              ))}
+              {novasFotos.map((f, i) => (
+                <div key={`n-${i}`} className="meus-anuncios-miniatura nova">
+                  {f.previa ? <img src={f.previa} alt={`Foto nova: ${f.ficheiro.name}`} /> : <Home size={20} />}
+                  <button type="button" onClick={() => tirarNova(i)} aria-label={`Remover ${f.ficheiro.name}`}><X size={14} /></button>
+                </div>
+              ))}
+              {totalFotos < MAX_FOTOS && (
+                <label className="meus-anuncios-adicionar">
+                  <Camera size={20} aria-hidden="true" />
+                  <span>Adicionar fotos</span>
+                  <input type="file" accept="image/*" multiple onChange={escolherFotos} aria-label="Adicionar fotos" />
+                </label>
+              )}
+            </div>
+            <small>No celular você pode escolher da galeria ou tirar na hora. As fotos são reduzidas antes de enviar.</small>
+          </div>
 
           {desconto !== null && (
             <p className="largo meus-anuncios-resumo">
@@ -179,8 +257,8 @@ export default function MeusAnuncios({ token }) {
           </label>
 
           <div className="largo meus-anuncios-botoes">
-            <button type="submit" disabled={guardando}>{guardando ? "Enviando..." : editandoId ? "Salvar alterações" : "Enviar para aprovação"}</button>
-            <button type="button" className="meus-anuncios-cancelar" onClick={() => { setAberto(false); setEditandoId(null); }}>Cancelar</button>
+            <button type="submit" disabled={Boolean(guardando)}>{guardando || (editandoId ? "Salvar alterações" : "Enviar para aprovação")}</button>
+            <button type="button" className="meus-anuncios-cancelar" onClick={fechar}>Cancelar</button>
           </div>
         </form>
       )}
@@ -189,14 +267,17 @@ export default function MeusAnuncios({ token }) {
         <ul className="meus-anuncios-lista">
           {anuncios.map((a) => {
             const estado = ESTADOS[a.status] || { texto: a.status, classe: "" };
+            const capa = urlDaFoto(a.fotos?.[0]?.url);
             return (
               <li key={a.id}>
+                <div className="meus-anuncios-capa">{capa ? <img src={capa} alt="" /> : <Home size={20} aria-hidden="true" />}</div>
                 <div>
                   <strong>{a.titulo}</strong>
                   <span className={`meus-anuncios-estado ${estado.classe}`}>{estado.texto}</span>
                   <small>
                     {[a.cidade, a.estado].filter(Boolean).join(" - ")}
                     {a.cidade || a.estado ? " · " : ""}{dinheiro(a.valor_anunciado)}
+                    {" · "}{a.fotos?.length || 0} foto(s)
                   </small>
                   {a.status === "rejeitado" && a.motivo_rejeicao && (
                     <small className="meus-anuncios-motivo">Motivo: {a.motivo_rejeicao}. Corrija e salve para enviar de novo.</small>

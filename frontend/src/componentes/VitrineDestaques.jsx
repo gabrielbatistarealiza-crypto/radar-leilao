@@ -5,6 +5,7 @@ import { Home, MapPin } from "lucide-react";
 
 import { pedirApi } from "../api";
 import { dinheiro, formatarData } from "../imovel/analise";
+import { urlDaFoto } from "../imagens";
 
 function Foto({ url, alt }) {
   const [falhou, setFalhou] = useState(false);
@@ -96,7 +97,7 @@ export default function VitrineDestaques({ onEscolher }) {
               <li key={`anuncio-${a.id}`}>
                 <button type="button" className="vitrine-cartao" onClick={() => onEscolher?.(a)}>
                   <div className="vitrine-foto">
-                    <Foto url={a.fotos?.[0]?.url} alt={a.titulo} />
+                    <Foto url={urlDaFoto(a.fotos?.[0]?.url)} alt={a.titulo} />
                     {Number(a.desconto) > 0 && (
                       <span className="vitrine-desconto">-{percentagem(a.desconto)}</span>
                     )}

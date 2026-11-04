@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { pedirApi } from "./api";
 import { dinheiro } from "./imovel/analise";
+import { urlDaFoto } from "./imagens";
 
 export default function ModeracaoAnuncios({ token }) {
   const [anuncios, setAnuncios] = useState([]);
@@ -61,10 +62,16 @@ export default function ModeracaoAnuncios({ token }) {
               {a.dono && <small>Anunciante: {a.dono.nome} ({a.dono.email}) · {a.dono.tipo}</small>}
               <small>Comissão aceite: {a.comissao_percentual ?? "-"}%{a.comissao_aceite_em ? ` em ${new Date(a.comissao_aceite_em).toLocaleDateString("pt-BR")}` : ""}</small>
               {a.descricao && <p>{a.descricao}</p>}
-              {a.fotos?.length > 0 && (
+              {a.fotos?.length > 0 ? (
                 <div className="moderacao-fotos">
-                  {a.fotos.map((f) => <a key={f.id} href={f.url} target="_blank" rel="noopener noreferrer">Foto {f.ordem + 1}</a>)}
+                  {a.fotos.map((f, i) => (
+                    <a key={f.id} href={urlDaFoto(f.url)} target="_blank" rel="noopener noreferrer" aria-label={`Ver foto ${i + 1}`}>
+                      <img src={urlDaFoto(f.url)} alt={`Foto ${i + 1} de ${a.titulo}`} loading="lazy" />
+                    </a>
+                  ))}
                 </div>
+              ) : (
+                <small>Sem fotos.</small>
               )}
             </div>
             <div className="moderacao-botoes">

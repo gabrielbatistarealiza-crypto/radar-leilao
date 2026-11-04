@@ -142,7 +142,20 @@
 .meus-anuncios-botoes { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
 .meus-anuncios-lista { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .meus-anuncios-lista li { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
-.meus-anuncios-lista li > div:first-child { display: grid; gap: 3px; min-width: 0; text-align: left; }
+.meus-anuncios-lista li > div:nth-child(2) { display: grid; flex: 1; gap: 3px; min-width: 0; text-align: left; }
+.meus-anuncios-capa { display: grid; flex: 0 0 64px; place-items: center; width: 64px; height: 48px; overflow: hidden; border-radius: 8px; background: #eef2f7; color: #98a2b3; }
+.meus-anuncios-capa img { width: 100%; height: 100%; object-fit: cover; }
+/* Fotos no formulário: miniaturas e botão para escolher no aparelho */
+.meus-anuncios-fotos { display: grid; gap: 8px; text-align: left; }
+.meus-anuncios-fotos-titulo { color: #344054; font-size: 13px; font-weight: 600; }
+.meus-anuncios-fotos small { color: #687386; font-size: 12px; }
+.meus-anuncios-miniaturas { display: flex; flex-wrap: wrap; gap: 10px; }
+.meus-anuncios-miniatura { position: relative; display: grid; place-items: center; width: 96px; height: 72px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 8px; background: #eef2f7; color: #98a2b3; }
+.meus-anuncios-miniatura img { width: 100%; height: 100%; object-fit: cover; }
+.meus-anuncios-miniatura.nova { border-color: #93c5fd; }
+.meus-anuncios-miniatura button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 999px; background: #172033cc; color: #fff; cursor: pointer; }
+.meus-anuncios-form label.meus-anuncios-adicionar { position: relative; display: grid; place-items: center; align-content: center; gap: 2px; width: 96px; height: 72px; border: 2px dashed #93c5fd; border-radius: 8px; background: #eff6ff; color: #173f70; font-size: 12px; font-weight: 700; text-align: center; cursor: pointer; }
+.meus-anuncios-adicionar input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; opacity: 0; cursor: pointer; }
 .meus-anuncios-lista strong { color: #172033; }
 .meus-anuncios-lista small { color: #687386; }
 .meus-anuncios-estado { justify-self: start; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
@@ -168,14 +181,19 @@
 .anuncio-publico-erro { color: #b42318; }
 
 /* Moderação de anúncios (painel de administração) */
-.moderacao-cabecalho { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 12px; }
-.moderacao-cabecalho h2 { margin: 4px 0; }
+.admin-section.moderacao-anuncios { padding: 22px 24px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fff; color: #344054; color-scheme: light; }
+.moderacao-cabecalho { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 12px; text-align: left; }
+.moderacao-cabecalho h2 { margin: 4px 0; color: #172033; }
+.moderacao-cabecalho button { min-height: 36px; padding: 0 14px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; color: #344054; font: inherit; font-weight: 600; cursor: pointer; }
+.moderacao-anuncios > p { color: #687386; }
+.moderacao-dados strong { color: #172033; }
 .moderacao-lista { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .moderacao-lista li { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; }
 .moderacao-dados { display: grid; gap: 4px; min-width: 0; flex: 1 1 320px; }
 .moderacao-dados small { color: #687386; }
 .moderacao-dados p { margin: 4px 0 0; color: #475569; font-size: 13px; }
-.moderacao-fotos { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.moderacao-fotos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.moderacao-fotos img { display: block; width: 120px; height: 90px; border-radius: 8px; object-fit: cover; background: #eef2f7; }
 .moderacao-botoes { display: flex; gap: 8px; }
 .moderacao-aprovar, .moderacao-rejeitar { min-height: 38px; padding: 0 14px; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer; }
 .moderacao-aprovar { border: 0; background: #067647; color: #fff; }
