@@ -25,6 +25,25 @@
   .login-com-vitrine .login-card { position: sticky; top: 32px; }
 }
 .vitrine { width: min(100%, 760px); }
+
+/* Política de Privacidade e Termos de Uso */
+.legal-page { box-sizing: border-box; min-height: 100vh; padding: 32px 16px; background: #f4f6fa; }
+.legal-card { box-sizing: border-box; width: min(100%, 820px); margin: 0 auto; padding: 32px; border: 1px solid #e1e6ee; border-radius: 16px; background: #fff; color: #344054; font-size: 15px; line-height: 1.6; text-align: left; color-scheme: light; }
+.legal-card h1 { margin: 4px 0; color: #172033; font-size: 28px; }
+.legal-card h2 { margin: 28px 0 8px; color: #172033; font-size: 18px; }
+.legal-card ul { padding-left: 20px; }
+.legal-card li { margin-bottom: 6px; }
+.legal-card a { color: #173f70; font-weight: 600; }
+.legal-marca { margin: 0; color: #173f70; font-weight: 700; }
+.legal-data { margin: 0; color: #687386; font-size: 13px; }
+.legal-rodape { margin-top: 28px; }
+.legal-card .login-alternar { width: auto; min-height: 0; padding: 8px 0; border: 0; background: none; color: #173f70; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+@media (max-width: 480px) { .legal-card { padding: 22px 18px; } }
+.legal-aceite { margin: 0; color: #687386; font-size: 12px; line-height: 1.5; }
+.legal-links { margin: 16px 0 0; color: #98a2b3; font-size: 12px; }
+.legal-aceite a, .legal-links a { color: #173f70; }
+.rodape-legal { padding: 24px 16px 32px; color: #98a2b3; font-size: 13px; text-align: center; }
+.rodape-legal a { color: #687386; }
 .vitrine-cabecalho h2 { margin: 0; color: #172033; font-size: 20px; }
 .vitrine-cabecalho p { margin: 4px 0 14px; color: #687386; font-size: 14px; }
 .vitrine-grelha { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin: 0 0 24px; padding: 0; list-style: none; }
