@@ -47,6 +47,7 @@ from app.routers.alertas import router as alertas_router
 from app.routers.consultoria import criar_router as criar_router_consultoria
 from app.security.auth import usuario_atual
 from app.services.resumo_alertas import enviar_resumos
+from app.services.avisos_rotina import avisar_execucoes, avisar_rotina_parada
 from app.services.notificacoes import (
     gerar_notificacoes,
     libertar_lock_scheduler_notificacoes,
@@ -284,6 +285,17 @@ def _gerar_notificacoes_agendadas():
         except Exception:
             db.rollback()
             logger.exception("Falha ao enviar os resumos de alertas por e-mail")
+        try:
+            # Avisos da rotina da Caixa (corre no computador local): cada execução
+            # registada e dias sem nenhuma. Não contacta a Caixa.
+            avisadas = avisar_execucoes(db)
+            if avisadas:
+                logger.info("Execuções da rotina avisadas por e-mail: %s", avisadas)
+            if avisar_rotina_parada(db):
+                logger.info("Aviso de rotina da Caixa parada enviado.")
+        except Exception:
+            db.rollback()
+            logger.exception("Falha nos avisos da rotina da Caixa")
         return quantidade
     finally:
         db.close()

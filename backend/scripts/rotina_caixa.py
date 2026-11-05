@@ -204,6 +204,38 @@ def aplicar_edital(db, args, onde: str) -> int:
     return 0
 
 
+def fechar(db, args, onde: str) -> int:
+    """Fim da tarefa agendada: aplica os editais coerentes da pasta e grava o registo da execução."""
+    from app.services.fecho_rotina import fechar_execucao
+
+    inicio = None
+    if args.inicio:
+        try:
+            inicio = datetime.fromisoformat(args.inicio.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            print(f"Aviso: --inicio inválido ({args.inicio}); fica sem hora de início.")
+    cauda = ""
+    if args.log and Path(args.log).is_file():
+        linhas = Path(args.log).read_text(encoding="utf-8", errors="replace").splitlines()
+        cauda = "\n".join(linhas[-25:])
+    execucao = fechar_execucao(db, codigo_saida=args.codigo_saida, iniciada_em=inicio,
+                               pasta_editais=args.pasta_editais, cauda_log=cauda,
+                               aplicar_editais=not args.sem_aplicar_editais)
+    resumo = json.loads(execucao.resumo)
+    print(json.dumps({"etapa": "fecho", "base": onde, "execucao_id": execucao.id,
+                      **{k: v for k, v in resumo.items() if k != "cauda_log"}}, ensure_ascii=False))
+    for edital in resumo["editais_aplicados"]:
+        print(f"Edital aplicado: {edital['ficheiro']} ({edital['imoveis']} imóveis, datas {edital['datas']})")
+    for edital in resumo["editais_com_problema"]:
+        print(f"Edital NÃO aplicado (rever): {edital['ficheiro']} — {edital['motivo']}")
+    if resumo.get("experimentar"):
+        print("Editais seguintes a experimentar no browser (404 = ainda não publicado):")
+        for link in resumo["experimentar"]:
+            print(f"  {link}")
+    print("Registo gravado; a API envia o resumo por e-mail aos administradores.")
+    return 0
+
+
 def linha_registo(f, etapa: str, dados: dict) -> dict:
     linha = {"etapa": etapa, "momento_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), **dados}
     f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
@@ -260,20 +292,29 @@ def main() -> int:
                         "(desligado: a CAIXA redireciona os PDFs; os links ficam listados no fim)")
     p.add_argument("--confirmo-gravar", action="store_true",
                    help="com --importar-descarregados ou --aplicar-edital: grava na base (sem isto é só ensaio)")
+    p.add_argument("--fecho", action="store_true",
+                   help="fim da tarefa agendada (sem CAIXA): aplica os PDFs coerentes da pasta Editais, "
+                        "grava o registo da execução (a API envia-o por e-mail) e mostra o resumo")
+    p.add_argument("--codigo-saida", type=int, default=0, help="com --fecho: código de saída da rotina")
+    p.add_argument("--inicio", default=None, help="com --fecho: início da rotina (ISO, UTC)")
+    p.add_argument("--log", default=None, help="com --fecho: ficheiro de saída da rotina (o fim vai no aviso)")
+    p.add_argument("--sem-aplicar-editais", action="store_true",
+                   help="com --fecho: não aplica os PDFs da pasta (só regista e resume)")
     args = p.parse_args()
     if args.lista_com_browser:
         args.lista = True
 
     sem_caixa = [nome for nome, ligado in (("--importar-descarregados", args.importar_descarregados),
                                            ("--aplicar-edital", bool(args.aplicar_edital)),
-                                           ("--resumo-editais", args.resumo_editais)) if ligado]
+                                           ("--resumo-editais", args.resumo_editais),
+                                           ("--fecho", args.fecho)) if ligado]
     if args.saltar_incoerentes and not args.aplicar_edital:
         sys.exit("Recusado: --saltar-incoerentes só existe com --aplicar-edital.")
     if len(sem_caixa) > 1 or (sem_caixa and (args.lista or args.max_pedidos_datas)):
         sys.exit(f"Recusado: {' e '.join(sem_caixa)} não se junta(m) a outras etapas.")
     if not args.lista and args.max_pedidos_datas == 0 and not sem_caixa:
         sys.exit("Recusado: indique --lista, --max-pedidos-datas N, --importar-descarregados, "
-                 "--aplicar-edital PDF ou --resumo-editais.")
+                 "--aplicar-edital PDF, --resumo-editais ou --fecho.")
     if not 1 <= args.max_ufs <= MAX_UFS:
         sys.exit(f"Recusado: --max-ufs tem de estar entre 1 e {MAX_UFS}.")
     if not 0 <= args.max_pedidos_datas <= MAX_PEDIDOS_DATAS:
@@ -334,6 +375,8 @@ def main() -> int:
             return importar_descarregados(db, args, onde)
         if args.aplicar_edital:
             return aplicar_edital(db, args, onde)
+        if args.fecho:
+            return fechar(db, args, onde)
         if args.resumo_editais:
             from app.services.caixa_datas_edital import resumo_editais
 
