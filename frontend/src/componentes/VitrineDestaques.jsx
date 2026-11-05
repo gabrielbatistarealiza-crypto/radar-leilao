@@ -20,7 +20,8 @@ function Foto({ url, alt }) {
 }
 
 function percentagem(valor) {
-  return `${Math.round(Number(valor) || 0)}%`;
+  // Para baixo: 99,6% mostra "99%", nunca "100%" (que parece "de graça").
+  return `${Math.floor(Number(valor) || 0)}%`;
 }
 
 export default function VitrineDestaques({ onEscolher }) {
@@ -66,7 +67,9 @@ export default function VitrineDestaques({ onEscolher }) {
                 >
                   <div className="vitrine-foto">
                     <Foto url={d.foto} alt={`${d.tipo || "Imóvel"} em ${d.cidade}`} />
-                    <span className="vitrine-desconto">-{percentagem(d.desconto)}</span>
+                    {Math.floor(Number(d.desconto) || 0) >= 1 && (
+                      <span className="vitrine-desconto">-{percentagem(d.desconto)}</span>
+                    )}
                   </div>
                   <div className="vitrine-texto">
                     <strong>{d.tipo || "Imóvel"}</strong>
@@ -90,7 +93,7 @@ export default function VitrineDestaques({ onEscolher }) {
       {anuncios.length > 0 && (
         <>
           <header className="vitrine-cabecalho">
-            <h2>Anúncios de corretores</h2>
+            <h2>Imóveis anunciados</h2>
           </header>
           <ul className="vitrine-grelha">
             {anuncios.map((a) => (
@@ -98,7 +101,7 @@ export default function VitrineDestaques({ onEscolher }) {
                 <button type="button" className="vitrine-cartao" onClick={() => onEscolher?.(a)}>
                   <div className="vitrine-foto">
                     <Foto url={urlDaFoto(a.fotos?.[0]?.url)} alt={a.titulo} />
-                    {Number(a.desconto) > 0 && (
+                    {Math.floor(Number(a.desconto) || 0) >= 1 && (
                       <span className="vitrine-desconto">-{percentagem(a.desconto)}</span>
                     )}
                   </div>

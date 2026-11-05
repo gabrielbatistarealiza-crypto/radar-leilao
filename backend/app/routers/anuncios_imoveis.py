@@ -227,14 +227,19 @@ def excluir_anuncio(
 # ------------------------------------------------------------------ listas (antes de "/{anuncio_id}")
 
 @router.get("/publicados")
-def listar_anuncios_publicados(db: Session = Depends(get_db)):
+def listar_anuncios_publicados(
+    db: Session = Depends(get_db),
+    usuario: Usuario | None = Depends(usuario_opcional),
+):
     anuncios = (
         db.query(AnuncioImovel)
         .filter(AnuncioImovel.status == PUBLICADO, AnuncioImovel.ativo.is_(True))
         .order_by(AnuncioImovel.criado_em.desc())
         .all()
     )
-    return [_publico(a) for a in anuncios]
+    # "e_meu": só para quem tem sessão e só sobre os próprios anúncios (o site
+    # esconde o "Tenho interesse"); não diz nada sobre quem anunciou os outros.
+    return [{**_publico(a), "e_meu": usuario is not None and a.usuario_id == usuario.id} for a in anuncios]
 
 
 @router.get("/meus", response_model=list[AnuncioImovelResponse])

@@ -71,6 +71,18 @@ describe("Imóveis anunciados", () => {
     expect(fetch.mock.calls[1][0]).toMatch(/\/oportunidades\/anuncio\/7\/interesse$/);
   });
 
+  it("o próprio anúncio não tem 'Tenho interesse' e o selo arredonda para baixo", async () => {
+    fetch.mockResolvedValueOnce(resposta(200, [
+      { ...ANUNCIO, status: "publicado", desconto: 99.6, e_meu: true },
+    ]));
+    render(<AnunciosPublicos usuario={{ id: 1, tipo: "cliente" }} token="tok" />);
+
+    expect(await screen.findByText("Este anúncio é seu.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tenho interesse" })).not.toBeInTheDocument();
+    expect(screen.getByText("-99%")).toBeInTheDocument();
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer tok");
+  });
+
   it("sem anúncios publicados a secção não aparece", async () => {
     fetch.mockResolvedValueOnce(resposta(200, []));
     const { container } = render(<AnunciosPublicos usuario={{ id: 2, tipo: "cliente" }} token="tok" />);

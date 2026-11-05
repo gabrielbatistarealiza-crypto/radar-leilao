@@ -33,7 +33,7 @@ describe("Vitrine no ecrã de entrada", () => {
     expect(screen.getByText("-40%")).toBeInTheDocument();
     expect(screen.getByText(/Lance mínimo/)).toHaveTextContent("93.824,59");
     expect(screen.getByRole("img", { name: /Apartamento em NOVA IGUACU/ })).toHaveAttribute("src", DESTAQUE.foto);
-    expect(screen.queryByText("Anúncios de corretores")).not.toBeInTheDocument();
+    expect(screen.queryByText("Imóveis anunciados")).not.toBeInTheDocument();
   });
 
   it("ao escolher um imóvel pede para entrar e põe o cursor no e-mail", async () => {
@@ -53,7 +53,7 @@ describe("Vitrine no ecrã de entrada", () => {
     }));
     render(<Login onLogin={() => {}} />);
 
-    expect(await screen.findByText("Anúncios de corretores")).toBeInTheDocument();
+    expect(await screen.findByText("Imóveis anunciados")).toBeInTheDocument();
     expect(screen.getByText("Casa com piscina")).toBeInTheDocument();
   });
 
