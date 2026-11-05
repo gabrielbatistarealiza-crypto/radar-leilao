@@ -6,6 +6,7 @@ import { Home, MapPin } from "lucide-react";
 
 import { pedirApi } from "./api";
 import { dinheiro } from "./imovel/analise";
+import { urlDaFoto } from "./imagens";
 
 export default function AnunciosPublicos({ usuario, token }) {
   const [anuncios, setAnuncios] = useState([]);
@@ -47,7 +48,7 @@ export default function AnunciosPublicos({ usuario, token }) {
       <p className="anuncios-publicos-sub">Imóveis anunciados por proprietários e corretores, revisados pela equipe do Radar Leilão.</p>
       <ul className="vitrine-grelha">
         {anuncios.map((a) => {
-          const foto = a.fotos?.[0]?.url;
+          const foto = urlDaFoto(a.fotos?.[0]?.url);
           const resultado = aviso[a.id];
           return (
             <li key={a.id}>

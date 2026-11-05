@@ -289,6 +289,23 @@ def listar_anuncios_corretor(
     return [_publico(a) for a in anuncios if _e_dono_ou_admin(usuario, a) or (a.status == PUBLICADO and a.ativo)]
 
 
+# ------------------------------------------------------------------ ficheiro de uma foto carregada
+
+@router.get("/fotos/{chave}")
+def ficheiro_da_foto(chave: str, db: Session = Depends(get_db)):
+    """Bytes de uma foto carregada. Sem sessão (as <img> não enviam o token): a chave
+    é aleatória (128 bits), por isso só a vê quem tem o endereço."""
+    from fastapi import Response
+
+    if len(chave) != 32 or not all(c in "0123456789abcdef" for c in chave):
+        raise HTTPException(status_code=404, detail="Foto não encontrada.")
+    foto = db.query(AnuncioImagem).filter(AnuncioImagem.chave == chave).first()
+    if foto is None or foto.conteudo is None:
+        raise HTTPException(status_code=404, detail="Foto não encontrada.")
+    return Response(content=foto.conteudo, media_type=foto.tipo_mime or "image/jpeg",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 # ------------------------------------------------------------------ moderação
 
 @router.post("/{anuncio_id}/aprovar", response_model=AnuncioImovelResponse)
@@ -333,6 +350,41 @@ class AnuncioImagemCreate(BaseModel):
     ordem: int = 0
 
 
+# Fotos carregadas do computador ou do telemóvel (reduzidas no aparelho antes do envio).
+MAX_FOTOS = 10
+MAX_BYTES_FOTO = 2_000_000
+
+
+class FotoCarregada(BaseModel):
+    conteudo_base64: str = Field(min_length=16, max_length=2_800_000)
+    ordem: Optional[int] = None
+
+
+def _tipo_da_imagem(dados: bytes) -> str | None:
+    """Tipo pelo conteúdo (não pelo nome do ficheiro): só JPEG, PNG ou WEBP."""
+    if dados.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if dados.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if dados[:4] == b"RIFF" and dados[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _foto_json(foto: AnuncioImagem) -> dict:
+    return {"id": foto.id, "anuncio_id": foto.anuncio_id, "url": foto.url, "ordem": foto.ordem}
+
+
+def _antes_de_nova_foto(db: Session, usuario: Usuario, anuncio: AnuncioImovel) -> int:
+    """Valida o limite e devolve a ordem da próxima foto; foto nova volta a ser revista."""
+    quantas = db.query(AnuncioImagem).filter(AnuncioImagem.anuncio_id == anuncio.id).count()
+    if quantas >= MAX_FOTOS:
+        raise HTTPException(status_code=400, detail=f"Cada anúncio pode ter no máximo {MAX_FOTOS} fotos.")
+    if not usuario_e_admin(usuario) and anuncio.status == PUBLICADO:
+        anuncio.status = EM_ANALISE
+    return quantas
+
+
 @router.post("/{anuncio_id}/fotos", status_code=201)
 def adicionar_foto(
     anuncio_id: int,
@@ -342,13 +394,66 @@ def adicionar_foto(
 ):
     anuncio = _buscar(db, anuncio_id)
     _exigir_dono_ou_admin(usuario, anuncio)
+    _antes_de_nova_foto(db, usuario, anuncio)
     foto = AnuncioImagem(anuncio_id=anuncio_id, url=dados.url, ordem=dados.ordem)
     db.add(foto)
-    if not usuario_e_admin(usuario) and anuncio.status == PUBLICADO:
-        anuncio.status = EM_ANALISE  # foto nova também é revista
     db.commit()
     db.refresh(foto)
-    return {"id": foto.id, "anuncio_id": foto.anuncio_id, "url": foto.url, "ordem": foto.ordem}
+    return _foto_json(foto)
+
+
+@router.post("/{anuncio_id}/fotos/carregar", status_code=201)
+def carregar_foto(
+    anuncio_id: int,
+    dados: FotoCarregada,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """Foto escolhida no aparelho, em base64 (sem dependências de upload multipart)."""
+    import base64
+    import binascii
+    import secrets
+
+    anuncio = _buscar(db, anuncio_id)
+    _exigir_dono_ou_admin(usuario, anuncio)
+    texto = dados.conteudo_base64.split(",", 1)[-1]  # aceita "data:image/jpeg;base64,..."
+    try:
+        conteudo = base64.b64decode(texto, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Foto inválida.")
+    if len(conteudo) > MAX_BYTES_FOTO:
+        raise HTTPException(status_code=400, detail="A foto é grande demais (máximo 2 MB).")
+    tipo = _tipo_da_imagem(conteudo)
+    if tipo is None:
+        raise HTTPException(status_code=400, detail="Envie uma imagem JPG, PNG ou WEBP.")
+    ordem = _antes_de_nova_foto(db, usuario, anuncio)
+    chave = secrets.token_hex(16)
+    foto = AnuncioImagem(
+        anuncio_id=anuncio_id, ordem=dados.ordem if dados.ordem is not None else ordem,
+        url=f"/anuncios-imoveis/fotos/{chave}", chave=chave, tipo_mime=tipo,
+        tamanho=len(conteudo), conteudo=conteudo,
+    )
+    db.add(foto)
+    db.commit()
+    db.refresh(foto)
+    return _foto_json(foto)
+
+
+@router.delete("/{anuncio_id}/fotos/{foto_id}", status_code=204)
+def remover_foto(
+    anuncio_id: int,
+    foto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    anuncio = _buscar(db, anuncio_id)
+    _exigir_dono_ou_admin(usuario, anuncio)
+    foto = db.query(AnuncioImagem).filter(AnuncioImagem.id == foto_id, AnuncioImagem.anuncio_id == anuncio_id).first()
+    if not foto:
+        raise HTTPException(status_code=404, detail="Foto não encontrada.")
+    db.delete(foto)
+    db.commit()
+    return None
 
 
 @router.get("/{anuncio_id}/fotos")
