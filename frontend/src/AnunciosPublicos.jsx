@@ -15,11 +15,11 @@ export default function AnunciosPublicos({ usuario, token }) {
 
   useEffect(() => {
     let ativo = true;
-    pedirApi("/anuncios-imoveis/publicados")
+    pedirApi("/anuncios-imoveis/publicados", { token })
       .then((dados) => ativo && setAnuncios(Array.isArray(dados) ? dados : []))
       .catch(() => ativo && setAnuncios([]));
     return () => { ativo = false; };
-  }, []);
+  }, [token]);
 
   if (!anuncios.length) return null;
 
@@ -55,7 +55,7 @@ export default function AnunciosPublicos({ usuario, token }) {
               <article className="vitrine-cartao anuncio-publico">
                 <div className="vitrine-foto">
                   {foto ? <img src={foto} alt={a.titulo} loading="lazy" /> : <div className="vitrine-sem-foto"><Home size={28} /></div>}
-                  {Number(a.desconto) > 0 && <span className="vitrine-desconto">-{Math.round(a.desconto)}%</span>}
+                  {Math.floor(Number(a.desconto) || 0) >= 1 && <span className="vitrine-desconto">-{Math.floor(a.desconto)}%</span>}
                 </div>
                 <div className="vitrine-texto">
                   <strong>{a.titulo}</strong>
@@ -71,7 +71,9 @@ export default function AnunciosPublicos({ usuario, token }) {
                     </span>
                   )}
                   {a.descricao && <span className="anuncio-publico-descricao">{a.descricao}</span>}
-                  {podeInteresse ? (
+                  {a.e_meu ? (
+                    <small className="anuncio-publico-nota">Este anúncio é seu.</small>
+                  ) : podeInteresse ? (
                     <button type="button" className="anuncio-publico-interesse" onClick={() => interesse(a)}
                             disabled={aEnviar === a.id || resultado?.ok}>
                       {aEnviar === a.id ? "Enviando..." : resultado?.ok ? "Interesse registrado" : "Tenho interesse"}

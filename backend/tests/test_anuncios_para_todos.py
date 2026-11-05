@@ -65,6 +65,15 @@ def test_admin_aprova_e_passa_a_ser_publico(http, cliente, admin, autenticar):
     assert "usuario_id" not in publicos[0] and "comissao_aceite_em" not in publicos[0]
 
 
+def test_publicados_dizem_ao_dono_quais_sao_seus(http, cliente, outro_cliente, admin, autenticar):
+    anuncio_id = publicar(http, autenticar(cliente)).json()["id"]
+    http.post(f"/anuncios-imoveis/{anuncio_id}/aprovar", headers=autenticar(admin))
+
+    assert http.get("/anuncios-imoveis/publicados", headers=autenticar(cliente)).json()[0]["e_meu"] is True
+    assert http.get("/anuncios-imoveis/publicados", headers=autenticar(outro_cliente)).json()[0]["e_meu"] is False
+    assert http.get("/anuncios-imoveis/publicados").json()[0]["e_meu"] is False
+
+
 def test_admin_rejeita_com_motivo_e_o_dono_ve(http, cliente, admin, autenticar):
     anuncio_id = publicar(http, autenticar(cliente)).json()["id"]
     r = http.post(f"/anuncios-imoveis/{anuncio_id}/rejeitar", json={"motivo": "Faltam fotos"},
