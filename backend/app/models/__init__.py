@@ -17,3 +17,4 @@ from app.models.notificacao import Notificacao
 from app.models.simulacao_rentabilidade import SimulacaoRentabilidade
 from app.models.pedido_corretor import PedidoCorretor
 from app.models.recuperacao_senha import RecuperacaoSenha
+from app.models.execucao_rotina import AvisoSistema, ExecucaoRotina

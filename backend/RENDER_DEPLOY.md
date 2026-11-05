@@ -22,6 +22,7 @@ Crie um serviço **Web Service** ligado ao repositório e selecione **Docker**. 
 - `RADAR_DISABLE_BACKGROUND_JOBS`: defina como `1` para desativar no lifespan as três rotinas em segundo plano: atualização Caixa das 03:00, processamento automático da fila de fotos e notificações. Remova a variável ou use outro valor para reativar as rotinas. Isso exige reinício/redeploy do serviço; nenhuma configuração de produção é alterada por este repositório.
 - `RADAR_ALERTAS`: com `1`, liga só a rotina dos alertas (notificações no site a cada 15 min e o resumo diário por e-mail), mesmo com `RADAR_DISABLE_BACKGROUND_JOBS=1`. Não contacta a Caixa. Usa as variáveis do Brevo acima.
 - `RADAR_RESUMO_HORA_UTC`: hora (UTC) a partir da qual sai o resumo diário dos alertas; por omissão `11` (08:00 em Brasília). Cada pessoa recebe no máximo um por dia e pode desligá-lo no site ou pela ligação do e-mail.
+- Avisos da rotina da Caixa (também com `RADAR_ALERTAS=1`): a tarefa agendada no computador local grava cada execução em `execucoes_rotina` (`rotina_caixa.py --fecho`) e a API envia o resumo por e-mail aos administradores. `RADAR_ROTINA_DIAS_SEM_EXECUCAO` (por omissão `4`): dias sem nenhuma execução até a API avisar (no máximo um aviso por dia).
 
 O comando de inicialização aplica primeiro as migrações (`python -m app.migrar`) e só depois inicia Uvicorn com um worker e usa a porta `PORT` fornecida pelo Render. Configure o health check path como `/health`.
 
